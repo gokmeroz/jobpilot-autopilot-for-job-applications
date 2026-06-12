@@ -4,6 +4,13 @@ secrets/
 __pycache__/
 *.pyc
 .venv/
+assets/resume/
+assets/cover_letters/*.md
+!assets/cover_letters/*.example.md
+runs/
+history/
+manual_queue/
+data/
 *.log
 *.tmp
 *.bak
