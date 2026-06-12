@@ -1,6 +1,9 @@
 CANDIDATE.md
 *env
 secrets/
+__pycache__/
+*.pyc
+.venv/
 *.log
 *.tmp
 *.bak
