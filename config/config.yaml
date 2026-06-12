@@ -1,0 +1,62 @@
+mode: review_first # review_first | full_auto
+
+markets:
+  countries: [DE, NL, IE, GB, TR]
+  remote_worldwide: true
+
+limits:
+  per_session: 40 # hard cap on submissions per run
+  per_country_min: 15 # discovery target, not a guarantee
+  turkey_max: 50
+
+gate:
+  max_age_hours: 48
+  max_yoe: 1
+  languages: [EN, TR] # DE-language postings pass only if german_ok
+  german_ok: true # candidate has B2 — accept German postings
+
+score:
+  threshold: 6.5
+  model: claude-haiku-4-5-20251001
+  max_llm_calls_per_run: 120 # cost guard; prescore must cut volume below this
+
+apply:
+  dry_run: false # true = fill + screenshot, never click submit
+  headless: true
+  max_attempts: 2
+  resume_file: assets/resume/resume.pdf
+
+paths:
+  runs: runs
+  history: history
+  manual_queue: manual_queue
+  ledger: data/ledger.sqlite
+
+sheet:
+  worksheet: "ALL APPLICATIONS"
+  columns:
+    [
+      DATE,
+      COUNTRY,
+      COMPANY,
+      POSITION,
+      LOCATION,
+      TYPE,
+      SALARY,
+      LANGUAGE,
+      STAGE,
+      SITUATION,
+    ]
+  stage_applied: APPLIED
+  stage_queued: QUEUED
+  situation_default: "ON GOING"
+  country_display: # ISO2 -> sheet display value
+    DE: Germany
+    NL: Netherlands
+    IE: Ireland
+    GB: "UK / England"
+    TR: Turkey
+    US: USA
+    REMOTE: Worldwide
+
+ghost_after_days: 21
