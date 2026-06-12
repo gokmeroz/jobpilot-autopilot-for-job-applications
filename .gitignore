@@ -1,0 +1,7 @@
+CANDIDATE.md
+*env
+*.log
+*.tmp
+*.bak
+*.swp
+.DS_Store
