@@ -25,6 +25,8 @@ apply:
   headless: true
   max_attempts: 2
   resume_file: assets/resume/resume.pdf
+  cover_letter_short: assets/cover_letters/cover_letter_short.md
+  cover_letter_long: assets/cover_letters/cover_letter_long.md
 
 paths:
   runs: runs
