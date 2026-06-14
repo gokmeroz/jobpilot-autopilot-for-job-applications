@@ -283,6 +283,34 @@ Score > 6.5
 
 ---
 
+# Review Stage
+
+After every discovery + scoring run, STOP.
+
+Do NOT apply to anything yet.
+
+Generate a review file at:
+
+manual_queue/<run_id>_review.md
+
+Format:
+
+| # | Role | Company | Country | Type | Salary | Score | Apply Link |
+
+Sort by score descending.
+
+Wait for user to:
+
+1. Review the list
+2. Strike through or delete rows they want to skip
+3. Confirm with: "apply" or "apply to all" or "apply to #1, #3, #5"
+
+Only after explicit user confirmation — proceed to apply.
+
+Never auto-apply without review confirmation in the same session.
+
+---
+
 # Application Rules
 
 Before applying:
@@ -292,6 +320,7 @@ Before applying:
 3. Verify posting date
 4. Verify experience requirement
 5. Check for duplicates
+6. Confirm job was approved in Review Stage
 
 Apply automatically when possible.
 
@@ -375,13 +404,23 @@ Generate:
 
 Jobs Found
 
-Jobs Added
+Jobs Passed Gate
+
+Jobs Scored Above Threshold
+
+Jobs Awaiting Review
 
 Jobs Applied
 
 Needs User Input
 
 Duplicates Skipped
+
+## Review List
+
+Full table of scored jobs pending user approval:
+
+| # | Role | Company | Country | Type | Salary | Score | Apply Link |
 
 ## Country Breakdown
 
