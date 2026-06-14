@@ -5,6 +5,11 @@ Usage:
     python main.py                        # run all sources
     python main.py --source greenhouse    # only Greenhouse companies
     python main.py --source arbeitnow     # only Arbeitnow
+    python main.py --source lever         # only Lever companies
+    python main.py --source ashby         # only Ashby companies
+    python main.py --source remotive      # only Remotive API
+    python main.py --source weworkremotely  # only WeWorkRemotely RSS
+    python main.py --source remoteok      # only RemoteOK API
     python main.py --dry-run              # discover + gate only, no LLM calls
     python main.py --run-id my-run-001    # override the run ID
     python main.py -v                     # verbose logging
@@ -14,6 +19,16 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+
+_ALL_SOURCES = [
+    "greenhouse",
+    "lever",
+    "ashby",
+    "arbeitnow",
+    "remotive",
+    "weworkremotely",
+    "remoteok",
+]
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -31,7 +46,12 @@ def _setup_logging(verbose: bool) -> None:
 
 def _discover(sources: list[str]) -> list:
     from src.discover.apis.arbeitnow import fetch as arbeitnow_fetch
+    from src.discover.apis.remoteok import fetch as remoteok_fetch
+    from src.discover.apis.remotive import fetch as remotive_fetch
+    from src.discover.apis.weworkremotely import fetch as wwr_fetch
+    from src.discover.ats.ashby import fetch as ashby_fetch
     from src.discover.ats.greenhouse import fetch as greenhouse_fetch
+    from src.discover.ats.lever import fetch as lever_fetch
 
     jobs = []
 
@@ -39,9 +59,29 @@ def _discover(sources: list[str]) -> list:
         print("Fetching from Greenhouse…")
         jobs += greenhouse_fetch()
 
+    if "lever" in sources:
+        print("Fetching from Lever…")
+        jobs += lever_fetch()
+
+    if "ashby" in sources:
+        print("Fetching from Ashby…")
+        jobs += ashby_fetch()
+
     if "arbeitnow" in sources:
         print("Fetching from Arbeitnow…")
         jobs += arbeitnow_fetch()
+
+    if "remotive" in sources:
+        print("Fetching from Remotive…")
+        jobs += remotive_fetch()
+
+    if "weworkremotely" in sources:
+        print("Fetching from WeWorkRemotely…")
+        jobs += wwr_fetch()
+
+    if "remoteok" in sources:
+        print("Fetching from RemoteOK…")
+        jobs += remoteok_fetch()
 
     return jobs
 
@@ -77,9 +117,9 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--source", "-s",
-        choices=["greenhouse", "arbeitnow", "all"],
+        choices=_ALL_SOURCES + ["all"],
         default="all",
-        help="Which source(s) to discover from (default: all)",
+        help="Which source to discover from (default: all)",
     )
     parser.add_argument(
         "--dry-run",
@@ -103,7 +143,7 @@ def main() -> int:
     args = _parse_args()
     _setup_logging(args.verbose)
 
-    sources = ["greenhouse", "arbeitnow"] if args.source == "all" else [args.source]
+    sources = _ALL_SOURCES if args.source == "all" else [args.source]
 
     print(f"JobPilot — sources: {', '.join(sources)}"
           + (" [DRY RUN]" if args.dry_run else ""))
