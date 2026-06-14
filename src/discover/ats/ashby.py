@@ -26,20 +26,20 @@ SOURCE = "ashby"
 SOURCE_TIER = 1
 REQUEST_DELAY = 0.4
 
-# Company display name → Ashby board handle
+# Company display name → Ashby board handle — verified slugs only
 COMPANIES: dict[str, str] = {
     "Supabase":     "supabase",
     "Linear":       "linear",
     "Vercel":       "vercel",
-    "Replicate":    "replicate",
     "Resend":       "resend",
-    "Anthropic":    "anthropic",
-    "Cursor":       "anysphere",
-    "Liveblocks":   "liveblocks",
-    "Modal":        "modal-labs",
     "Vapi":         "vapi",
-    "Cal.com":      "cal",
     "Raycast":      "raycast",
+    # Migrated from Lever / newly added
+    "PostHog":      "posthog",
+    "Zapier":       "zapier",
+    "Miro":         "miro",
+    "Airtable":     "airtable",
+    "Loom":         "loom",
 }
 
 _VISA_RE = re.compile(

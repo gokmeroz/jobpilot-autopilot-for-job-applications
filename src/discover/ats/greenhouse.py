@@ -31,22 +31,23 @@ REQUEST_DELAY = 0.4   # seconds between company requests
 # Token is the slug in: https://boards.greenhouse.io/<token>
 # Add more here as the pipeline grows.
 COMPANIES: dict[str, str] = {
-    # Tier 1
+    # Tier 1 — verified slugs
     "Stripe":       "stripe",
     "Datadog":      "datadog",
     "Cloudflare":   "cloudflare",
-    "Shopify":      "shopify",
     "GitLab":       "gitlab",
     "MongoDB":      "mongodb",
     "Elastic":      "elastic",
-    "Grafana Labs": "grafana",
+    "Grafana Labs": "grafanalabs",
     "Canonical":    "canonical",
-    "PostHog":      "posthog",
-    # Tier 2
-    "Miro":         "miro",
+    "Figma":        "figma",
+    "Brex":         "brex",
+    "Scale AI":     "scaleai",
+    # Tier 2 — verified slugs
     "Adyen":        "adyen",
-    "Personio":     "personio",
-    "Delivery Hero":"deliveryhero",
+    "Webflow":      "webflow",
+    "Netlify":      "netlify",
+    "Descript":     "descript",
 }
 
 # Keywords in content that suggest visa/relocation support

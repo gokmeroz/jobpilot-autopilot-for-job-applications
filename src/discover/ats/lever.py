@@ -26,20 +26,13 @@ SOURCE = "lever"
 SOURCE_TIER = 1
 REQUEST_DELAY = 0.4
 
-# Company display name → Lever board slug
+# Company display name → Lever board slug.
+# NOTE: Lever v0 public boards are no longer widely used — most companies
+# have migrated to Greenhouse or Ashby. Add slugs here only after manually
+# confirming the board exists at:
+# https://api.lever.co/v0/postings/{slug}?mode=json
 COMPANIES: dict[str, str] = {
-    "Figma":        "figma",
-    "Airtable":     "airtable",
-    "Webflow":      "webflow",
-    "Brex":         "brex",
-    "Loom":         "loom",
-    "Sourcegraph":  "sourcegraph",
-    "Netlify":      "netlify",
-    "Zapier":       "zapier",
-    "Scale AI":     "scaleai",
-    "Anduril":      "anduril",
-    "Descript":     "descript",
-    "Pitch":        "pitch-2",
+    # Add verified slugs here
 }
 
 _VISA_RE = re.compile(
