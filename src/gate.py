@@ -11,26 +11,28 @@ log = logging.getLogger(__name__)
 
 # Must match at least one of these to be considered a tech/SWE role.
 # Checked against the job title (case-insensitive).
+# "engineer" alone is intentionally NOT here — it matches sysadmin, project,
+# business-systems, requirements, and hardware roles. Must be qualified.
 _TECH_TITLE_RE = re.compile(
     r"\b("
-    # Core SWE
-    r"software|engineer|developer|programmer|coder|"
-    r"devops|sre|reliability|"
-    r"backend|back[\s\-]?end|frontend|front[\s\-]?end|"
-    r"fullstack|full[\s\-]?stack|"
-    r"platform|infrastructure|cloud|"
-    # AI / data
-    r"machine[\s\-]?learning|\bml\b|\bai\b|"
-    r"data\s+(?:scientist|engineer)|"
-    # Specific roles from CLAUDE.md
+    # software engineer / developer (explicit)
+    r"software\s+(?:engineer|developer)|"
+    # domain-qualified engineer / developer
+    r"(?:backend|back[\s\-]?end|frontend|front[\s\-]?end|"
+    r"fullstack|full[\s\-]?stack|platform|cloud|mobile|"
+    r"infrastructure|embedded|applications?)\s+(?:engineer|developer)|"
+    # devops / SRE
+    r"(?:devops|dev[\s\-]ops)\b|sre\b|site\s+reliability\s+engineer|"
+    # AI / ML / data
+    r"(?:ai|ml|machine[\s\-]?learning|data)\s+(?:engineer|scientist)|"
+    # product / solutions
     r"product\s+engineer|solutions?\s+engineer|"
-    r"developer\s+advocate|technical\s+(?:consultant|support|lead)|"
-    # IT support patterns
-    r"it[\s\-](?:administrator|admin|support|specialist|engineer)|"
-    # German tech keywords (full words to avoid \b issues with suffixes)
-    r"softwareentwicklung|softwareentwickler|entwickler|programmierer|informatik|"
-    r"systemadministrator|systemingenieur|systemintegration|"
-    r"it[\s\-]administrator|fachinformatiker"
+    # developer-adjacent
+    r"developer\s+advocate|technical\s+consultant|"
+    # bare "developer" / "programmer" are almost always SWE in practice
+    r"developer|programmer|coder|"
+    # German SWE terms only (NOT systemingenieur/systemadmin/systemintegration)
+    r"softwareentwicklung|softwareentwickler|entwickler|programmierer|fachinformatiker"
     r")\b",
     re.IGNORECASE,
 )

@@ -107,12 +107,10 @@ def _dry_run(jobs: list) -> None:
     print(f"──────────────────────────────────────────────────")
 
     if new:
-        print("\nSample jobs that would be scored:")
-        for job in new[:10]:
+        print("\nJobs that would be scored:")
+        for job in new:
             age = f"{job.age_hours():.0f}h" if job.age_hours() is not None else "age?"
             print(f"  [{age:>5}] {job.title} @ {job.company} ({job.country})")
-        if len(new) > 10:
-            print(f"  … and {len(new) - 10} more")
 
 
 def _print_review_table(jobs: list) -> None:
