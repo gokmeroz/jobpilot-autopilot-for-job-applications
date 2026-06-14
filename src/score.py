@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
-from openai import OpenAI
+from anthropic import Anthropic
 
 from src.config import ROOT, env, load
 from src.models import Job, Score, Status
 
 log = logging.getLogger(__name__)
-
-MODEL = "gpt-5.5"
 
 _SYSTEM = (
     "You are a precise job-fit scorer for a software engineering candidate.\n"
@@ -67,23 +66,35 @@ Return ONLY this JSON:
 """
 
 
-def score_job(job: Job, client: OpenAI | None = None) -> Job:
+def _make_client() -> Anthropic:
+    return Anthropic(api_key=env("ANTHROPIC_API_KEY", required=True))
+
+
+def score_job(job: Job, client: Anthropic | None = None) -> Job:
     if client is None:
-        client = OpenAI(api_key=env("OPENAI_API_KEY", required=True))
+        client = _make_client()
 
-    prompt = _build_prompt(job)
+    cfg   = load("config")
+    model = cfg["score"].get("model", "claude-sonnet-4-6")
 
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": _SYSTEM},
-            {"role": "user", "content": prompt},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0,
+    response = client.messages.create(
+        model=model,
+        max_tokens=512,
+        system=_SYSTEM,
+        messages=[{"role": "user", "content": _build_prompt(job)}],
     )
 
-    data = json.loads(response.choices[0].message.content)
+    raw = response.content[0].text.strip() if response.content else ""
+
+    # Strip markdown code fences if the model wrapped the JSON
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw).strip()
+
+    if not raw:
+        raise ValueError(f"empty response from model (stop_reason={response.stop_reason})")
+
+    data = json.loads(raw)
 
     score = Score(
         role=float(data["role"]),
@@ -100,16 +111,16 @@ def score_job(job: Job, client: OpenAI | None = None) -> Job:
     return updated
 
 
-def score_batch(jobs: list[Job], client: OpenAI | None = None) -> list[Job]:
+def score_batch(jobs: list[Job], client: Anthropic | None = None) -> list[Job]:
     if client is None:
-        client = OpenAI(api_key=env("OPENAI_API_KEY", required=True))
+        client = _make_client()
 
-    cfg = load("config")
+    cfg       = load("config")
     max_calls = cfg["score"].get("max_llm_calls_per_run", 120)
     threshold = cfg["score"]["threshold"]
 
     results: list[Job] = []
-    calls = 0
+    calls   = 0
 
     for job in jobs:
         if calls >= max_calls:

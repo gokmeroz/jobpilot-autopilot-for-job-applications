@@ -49,6 +49,13 @@ _SEARCH_MATRIX: list[tuple[str, str]] = [
     ("junior software engineer",         "Turkey"),
 ]
 
+# LinkedIn URL filter params
+# f_TPR: r86400=24h, r604800=week
+# f_E:   1=internship, 2=entry level, 3=associate
+# f_JT:  F=full-time
+_LI_BASE = "https://www.linkedin.com/jobs/search/"
+_LI_PARAMS = "f_TPR=r86400&f_E=2%2C3&f_JT=F"
+
 # ATS fingerprinting — apply URL domain → ats name
 _ATS_MAP: dict[str, str] = {
     "greenhouse.io":      "greenhouse",
@@ -217,32 +224,36 @@ def _parse_job(raw: dict) -> Job | None:
 # Actor input builder
 # ---------------------------------------------------------------------------
 
+def _build_search_url(keywords: str, location: str) -> str:
+    from urllib.parse import urlencode
+    params = {"keywords": keywords, **({} if not location else {"location": location})}
+    return f"{_LI_BASE}?{urlencode(params)}&{_LI_PARAMS}"
+
+
 def _build_actor_input(
     search_matrix: list[tuple[str, str]],
-    date_filter: str,
     pages_per_query: int,
 ) -> dict:
     """
     Build the input payload for curious_coder/linkedin-jobs-scraper.
-    Each (keywords, location) pair becomes one query object.
+    Uses both URL-based startUrls and flat query strings for compatibility.
     """
-    queries = []
-    for keywords, location in search_matrix:
-        q: dict = {
-            "query": keywords,
-            "datePosted": date_filter,
-            "experienceLevel": "Entry level",
-            "pages": pages_per_query,
-        }
-        if location:
-            q["location"] = location
-        queries.append(q)
-
+    start_urls = [
+        {"url": _build_search_url(keywords, location)}
+        for keywords, location in search_matrix
+    ]
+    # Also provide flat search strings as fallback field names vary by actor version
+    queries = [
+        f"{keywords} in {location}" if location else keywords
+        for keywords, location in search_matrix
+    ]
     return {
+        "startUrls": start_urls,
         "queries": queries,
-        "proxy": {
-            "useApifyProxy": True,
-        },
+        "datePosted": "Past 24 hours",
+        "experienceLevel": "Entry level",
+        "pages": pages_per_query,
+        "proxy": {"useApifyProxy": True},
         "scrapeCompanyDetails": False,
     }
 
@@ -261,15 +272,14 @@ def fetch(
     """
     cfg      = load("config")
     apify    = cfg.get("apify", {})
-    actor_id = apify.get("actor_id", "curious_coder/linkedin-jobs-scraper")
+    actor_id = apify.get("actor_id", "bebity/linkedin-jobs-scraper")
     timeout  = apify.get("timeout_secs", 300)
     pages    = apify.get("pages_per_query", 1)
-    date_f   = apify.get("date_filter", "Past 24 hours")
 
     matrix   = search_matrix or _SEARCH_MATRIX
     log.info("linkedin: starting Apify run — %d queries, actor=%s", len(matrix), actor_id)
 
-    actor_input = _build_actor_input(matrix, date_f, pages)
+    actor_input = _build_actor_input(matrix, pages)
 
     try:
         raw_items = run_actor(actor_id, actor_input, timeout_secs=timeout)

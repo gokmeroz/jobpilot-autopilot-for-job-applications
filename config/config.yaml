@@ -17,7 +17,7 @@ gate:
 
 score:
   threshold: 6.5
-  model: gpt-5.5
+  model: claude-haiku-4-5-20251001  # fast + cheap for scoring; swap to claude-sonnet-4-6 for higher quality
   max_llm_calls_per_run: 120 # cost guard; prescore must cut volume below this
 
 apply:
@@ -66,5 +66,4 @@ ghost_after_days: 21
 apify:
   actor_id: "curious_coder/linkedin-jobs-scraper"
   timeout_secs: 300       # max seconds to wait for actor run
-  pages_per_query: 1      # LinkedIn results pages per query (25 jobs/page)
-  date_filter: "Past 24 hours"  # "Past 24 hours" | "Past week" | "Past month"
+  pages_per_query: 1      # results per search URL (25 jobs/page)

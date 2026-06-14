@@ -158,6 +158,8 @@ def filter_new(jobs: list[Job]) -> tuple[list[Job], list[Job]]:
 
 
 def record_batch(jobs: list[Job], run_id: str) -> None:
-    """Upsert every job in the list — call this after scoring/gating."""
+    """Upsert every job in the list — call this after scoring/gating.
+    Jobs with Status.failed are skipped so they can be retried next run."""
     for job in jobs:
-        upsert(job, run_id)
+        if job.status != Status.failed:
+            upsert(job, run_id)
