@@ -9,6 +9,32 @@ from src.models import Job, Status
 
 log = logging.getLogger(__name__)
 
+# Must match at least one of these to be considered a tech/SWE role.
+# Checked against the job title (case-insensitive).
+_TECH_TITLE_RE = re.compile(
+    r"\b("
+    # Core SWE
+    r"software|engineer|developer|programmer|coder|"
+    r"devops|sre|reliability|"
+    r"backend|back[\s\-]?end|frontend|front[\s\-]?end|"
+    r"fullstack|full[\s\-]?stack|"
+    r"platform|infrastructure|cloud|"
+    # AI / data
+    r"machine[\s\-]?learning|\bml\b|\bai\b|"
+    r"data\s+(?:scientist|engineer)|"
+    # Specific roles from CLAUDE.md
+    r"product\s+engineer|solutions?\s+engineer|"
+    r"developer\s+advocate|technical\s+(?:consultant|support|lead)|"
+    # IT support patterns
+    r"it[\s\-](?:administrator|admin|support|specialist|engineer)|"
+    # German tech keywords (full words to avoid \b issues with suffixes)
+    r"softwareentwicklung|softwareentwickler|entwickler|programmierer|informatik|"
+    r"systemadministrator|systemingenieur|systemintegration|"
+    r"it[\s\-]administrator|fachinformatiker"
+    r")\b",
+    re.IGNORECASE,
+)
+
 # Title fragments that indicate a clearly senior role.
 # Checked as whole words (case-insensitive) against the job title.
 _SENIOR_PATTERNS = re.compile(
@@ -53,6 +79,13 @@ def _gate_seniority(job: Job) -> str | None:
     return None
 
 
+def _gate_role(job: Job) -> str | None:
+    """Return a reason string if the title has no tech/SWE signal."""
+    if _TECH_TITLE_RE.search(job.title):
+        return None
+    return f"non-tech title: '{job.title}'"
+
+
 def _gate_language(job: Job, allowed: list[str], german_ok: bool) -> str | None:
     """Return a reason string if the posting language is not acceptable."""
     lang = (job.language or "EN").upper()
@@ -73,6 +106,7 @@ def check(job: Job) -> Job:
 
     checks = [
         _gate_age(job, cfg["max_age_hours"]),
+        _gate_role(job),
         _gate_yoe(job, cfg["max_yoe"]),
         _gate_seniority(job),
         _gate_language(job, cfg["languages"], cfg.get("german_ok", False)),
