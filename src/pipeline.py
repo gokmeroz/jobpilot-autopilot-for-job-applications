@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src import gate, ledger
+from src.apply.runner import apply_batch
 from src.config import ROOT, load
 from src.models import Job, Route, Status
 from src.score import score_batch
@@ -39,6 +40,8 @@ class PipelineResult:
     duplicates_skipped: int = 0
     scored: int = 0
     above_threshold: int = 0
+    applied: int = 0
+    needs_user_input: int = 0
     appended_to_sheet: int = 0
     review_file: Path | None = None
     report_file: Path | None = None
@@ -133,6 +136,8 @@ def _write_report(result: PipelineResult, cfg: dict) -> Path:
         f"| Duplicates Skipped | {result.duplicates_skipped} |",
         f"| Scored | {result.scored} |",
         f"| Above Threshold | {result.above_threshold} |",
+        f"| Applied | {result.applied} |",
+        f"| Needs User Input | {result.needs_user_input} |",
         f"| Appended to Sheet | {result.appended_to_sheet} |",
         "",
         "## Review List",
@@ -244,12 +249,39 @@ def run(jobs: list[Job], *, run_id: str | None = None) -> PipelineResult:
         _print_summary(result)
         return result
 
-    # 10. full_auto: apply (not yet implemented — will be wired in when apply/ modules exist)
-    log.warning("mode=full_auto apply step is not yet implemented — skipping apply")
+    # 10. full_auto: split by route, apply to auto jobs, queue manual ones
+    auto_jobs   = [j for j in sorted_planned if j.route == Route.auto]
+    manual_jobs = [j for j in sorted_planned if j.route != Route.auto]
 
-    # 11. Sync to sheet
+    log.info("full_auto: %d auto-apply, %d manual", len(auto_jobs), len(manual_jobs))
+
+    apply_results = apply_batch(auto_jobs, run_id)
+
+    # Update ledger + job statuses from apply results
+    applied_jobs: list[Job] = []
+    queued_jobs: list[Job] = list(manual_jobs)
+
+    result_by_key = {r.job_key: r for r in apply_results}
+    for job in auto_jobs:
+        ar = result_by_key.get(job.job_key)
+        if ar:
+            ledger.mark_status(job, ar.status, run_id)
+            updated = job.model_copy(update={"status": ar.status})
+            if ar.status == Status.applied:
+                applied_jobs.append(updated)
+                result.applied += 1
+            else:
+                queued_jobs.append(updated)
+                result.needs_user_input += 1
+
+    for job in manual_jobs:
+        ledger.mark_status(job, Status.queued, run_id)
+
+    # 11. Sync to sheet — applied + queued (manual)
+    all_to_sync = [j.model_copy(update={"status": Status.applied}) for j in applied_jobs] + \
+                  [j.model_copy(update={"status": Status.queued})  for j in queued_jobs]
     try:
-        result.appended_to_sheet = append_jobs(planned, cfg)
+        result.appended_to_sheet = append_jobs(all_to_sync, cfg)
     except Exception as exc:
         log.error("sheet sync failed: %s", exc)
 
@@ -267,6 +299,8 @@ def _print_summary(result: PipelineResult) -> None:
       Duplicates : {result.duplicates_skipped}
       Scored     : {result.scored}
       Above {load("config")["score"]["threshold"]}    : {result.above_threshold}
+      Applied    : {result.applied}
+      Needs input: {result.needs_user_input}
       Sheet rows : {result.appended_to_sheet}
 
       Review → {result.review_file}
