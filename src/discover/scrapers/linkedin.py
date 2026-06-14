@@ -148,18 +148,13 @@ def _fingerprint_ats(url: str) -> str | None:
 
 
 def _parse_remote_type(raw: dict, location: str, description: str) -> RemoteType:
-    work_type = _get(raw, "workType", "workplace_type", "workplaceType").lower()
-    if "remote" in work_type:
-        return RemoteType.remote
-    if "hybrid" in work_type:
-        return RemoteType.hybrid
-    if "on-site" in work_type or "onsite" in work_type:
-        return RemoteType.onsite
+    # Actor output has no explicit workplaceType field; infer from location string
+    # (LinkedIn often puts "(Remote)" or "Anywhere" in the location when remote)
     return infer_remote(location, description[:300])
 
 
 def _parse_salary(raw: dict) -> str | None:
-    val = _get(raw, "salary", "salaryRange", "compensation")
+    val = _get(raw, "salary")
     return val or None
 
 
@@ -169,22 +164,17 @@ def _parse_salary(raw: dict) -> str | None:
 
 def _parse_job(raw: dict) -> Job | None:
     try:
-        title   = _get(raw, "title", "position", "jobTitle")
-        company = _get(raw, "companyName", "company", "company_name", "organizationName")
+        title   = _get(raw, "title")
+        company = _get(raw, "companyName")
 
-        # Prefer external apply URL; fall back to LinkedIn job URL
-        apply_url = _get(raw, "applyUrl", "apply_url", "externalApplyLink")
-        if not apply_url:
-            apply_url = _get(raw, "url", "jobUrl", "link")
-        if not apply_url:
+        # Prefer external apply URL; fall back to LinkedIn job page URL
+        apply_url = _get(raw, "applyUrl") or _get(raw, "link")
+        if not apply_url or not title or not company:
             return None
 
-        if not title or not company:
-            return None
-
-        location    = _get(raw, "location", "locationName", "geoRegionName")
-        description = _get(raw, "description", "descriptionText", "jobDescription")
-        raw_date    = _get(raw, "postedAt", "posted_at", "date", "listedAt", "publishedAt")
+        location    = _get(raw, "location")
+        description = _get(raw, "descriptionText", "descriptionHtml")
+        raw_date    = _get(raw, "postedAt")
 
         posted_at   = _parse_posted_at(raw_date)
         country     = country_from_location(location) if location else "REMOTE"
@@ -236,25 +226,20 @@ def _build_actor_input(
 ) -> dict:
     """
     Build the input payload for curious_coder/linkedin-jobs-scraper.
-    Uses both URL-based startUrls and flat query strings for compatibility.
+
+    Schema (from actor build h6gmDeUthEKsvngoE):
+      urls          — required, list of LinkedIn jobs search page URLs
+      scrapeCompany — bool, adds extra requests per job (skip for speed)
+      count         — integer, total jobs to collect across all URLs
     """
-    start_urls = [
-        {"url": _build_search_url(keywords, location)}
-        for keywords, location in search_matrix
-    ]
-    # Also provide flat search strings as fallback field names vary by actor version
-    queries = [
-        f"{keywords} in {location}" if location else keywords
+    urls = [
+        _build_search_url(keywords, location)
         for keywords, location in search_matrix
     ]
     return {
-        "startUrls": start_urls,
-        "queries": queries,
-        "datePosted": "Past 24 hours",
-        "experienceLevel": "Entry level",
-        "pages": pages_per_query,
-        "proxy": {"useApifyProxy": True},
-        "scrapeCompanyDetails": False,
+        "urls": urls,
+        "scrapeCompany": False,
+        "count": max(10, len(urls) * 25 * pages_per_query),
     }
 
 

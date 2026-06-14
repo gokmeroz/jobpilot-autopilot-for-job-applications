@@ -29,7 +29,7 @@ _ALL_SOURCES = [
     "remotive",
     "weworkremotely",
     "remoteok",
-    # "linkedin",  # enable once Apify actor ID is confirmed: python main.py --source linkedin
+    "linkedin",
 ]
 
 
