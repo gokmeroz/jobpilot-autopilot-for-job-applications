@@ -15,23 +15,30 @@ log = logging.getLogger(__name__)
 # business-systems, requirements, and hardware roles. Must be qualified.
 _TECH_TITLE_RE = re.compile(
     r"\b("
-    # software engineer / developer (explicit)
+    # explicit software engineer / developer
     r"software\s+(?:engineer|developer)|"
     # domain-qualified engineer / developer
     r"(?:backend|back[\s\-]?end|frontend|front[\s\-]?end|"
     r"fullstack|full[\s\-]?stack|platform|cloud|mobile|"
     r"infrastructure|embedded|applications?)\s+(?:engineer|developer)|"
+    # technology-prefixed engineer / developer (language / framework)
+    r"(?:node(?:\.js)?|react(?:\.js)?|next(?:\.js)?|vue(?:\.js)?|angular|"
+    r"typescript|javascript|python|java(?:script)?|kotlin|swift|ruby|rails|"
+    r"golang|go|rust|php|django|fastapi|spring|laravel|elixir|scala|clojure)"
+    r"\s+(?:engineer|developer)|"
     # devops / SRE
-    r"(?:devops|dev[\s\-]ops)\b|sre\b|site\s+reliability\s+engineer|"
-    # AI / ML / data
-    r"(?:ai|ml|machine[\s\-]?learning|data)\s+(?:engineer|scientist)|"
+    r"(?:devops|dev[\s\-]ops)\b|\bsre\b|site\s+reliability\s+engineer|"
+    # AI / ML / LLM
+    r"(?:ai|ml|llm|machine[\s\-]?learning|deep[\s\-]?learning|"
+    r"generative[\s\-]ai|applied[\s\-]ai|data)\s+(?:engineer|scientist)|"
+    r"ai\s+[\w\-]+\s+engineer|"      # AI [qualifier] Engineer: AI Integration, AI Application…
     # product / solutions
     r"product\s+engineer|solutions?\s+engineer|"
     # developer-adjacent
     r"developer\s+advocate|technical\s+consultant|"
-    # bare "developer" / "programmer" are almost always SWE in practice
+    # bare "developer" / "programmer" — almost always SWE in practice
     r"developer|programmer|coder|"
-    # German SWE terms only (NOT systemingenieur/systemadmin/systemintegration)
+    # German SWE terms (NOT systemingenieur / systemadmin / systemintegration)
     r"softwareentwicklung|softwareentwickler|entwickler|programmierer|fachinformatiker"
     r")\b",
     re.IGNORECASE,
