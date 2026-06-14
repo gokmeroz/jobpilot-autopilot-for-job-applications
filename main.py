@@ -10,6 +10,7 @@ Usage:
     python main.py --source remotive      # only Remotive API
     python main.py --source weworkremotely  # only WeWorkRemotely RSS
     python main.py --source remoteok      # only RemoteOK API
+    python main.py --source linkedin      # only LinkedIn via Apify (needs APIFY_TOKEN)
     python main.py --dry-run              # discover + gate only, no LLM calls
     python main.py --run-id my-run-001    # override the run ID
     python main.py -v                     # verbose logging
@@ -28,6 +29,7 @@ _ALL_SOURCES = [
     "remotive",
     "weworkremotely",
     "remoteok",
+    "linkedin",
 ]
 
 
@@ -52,6 +54,7 @@ def _discover(sources: list[str]) -> list:
     from src.discover.ats.ashby import fetch as ashby_fetch
     from src.discover.ats.greenhouse import fetch as greenhouse_fetch
     from src.discover.ats.lever import fetch as lever_fetch
+    from src.discover.scrapers.linkedin import fetch as linkedin_fetch
 
     jobs = []
 
@@ -82,6 +85,10 @@ def _discover(sources: list[str]) -> list:
     if "remoteok" in sources:
         print("Fetching from RemoteOK…")
         jobs += remoteok_fetch()
+
+    if "linkedin" in sources:
+        print("Fetching from LinkedIn (via Apify)…")
+        jobs += linkedin_fetch()
 
     return jobs
 

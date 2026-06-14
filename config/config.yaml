@@ -62,3 +62,9 @@ sheet:
     REMOTE: Worldwide
 
 ghost_after_days: 21
+
+apify:
+  actor_id: "curious_coder/linkedin-jobs-scraper"
+  timeout_secs: 300       # max seconds to wait for actor run
+  pages_per_query: 1      # LinkedIn results pages per query (25 jobs/page)
+  date_filter: "Past 24 hours"  # "Past 24 hours" | "Past week" | "Past month"
