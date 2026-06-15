@@ -121,7 +121,19 @@ def append_jobs(jobs: list[Job], cfg: dict) -> int:
 
     try:
         ws = _worksheet(cfg)
-        ws.append_rows(rows, value_input_option="USER_ENTERED")
+        # Find the last non-empty row so we write immediately after it,
+        # not at the physical end of the sheet (which may be row 2000+).
+        all_values = ws.get_all_values()
+        last_row = max(
+            (i + 1 for i, row in enumerate(all_values) if any(c.strip() for c in row)),
+            default=1,
+        )
+        next_row = last_row + 1
+        cells = []
+        for row_offset, row_data in enumerate(rows):
+            for col_offset, value in enumerate(row_data):
+                cells.append(gspread.Cell(next_row + row_offset, col_offset + 1, value))
+        ws.update_cells(cells, value_input_option="USER_ENTERED")
     except Exception as exc:
         logger.error("sheet.append_jobs failed: %s", exc)
         raise
