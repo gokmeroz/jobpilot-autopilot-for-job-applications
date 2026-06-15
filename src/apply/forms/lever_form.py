@@ -67,7 +67,7 @@ class LeverForm(BaseFormFiller):
 
         # -- Cover letter ----------------------------------------------------
         short = job.cover_letter == self.cfg["apply"]["cover_letter_short"]
-        cl_text = c.cover_letter_text(job.title, job.company, short=short)
+        cl_text = c.cover_letter_text(job.title, job.company, short=short, description=job.description)
         self.fill_first(
             [
                 "textarea[name='comments']",

@@ -107,11 +107,14 @@ def _run_browser(
             ),
         )
         page = ctx.new_page()
+        filler = filler_cls(page, job, candidate, cfg)
 
         try:
-            page.goto(job.apply_url, timeout=30_000, wait_until="domcontentloaded")
+            # prefetch runs LLM calls (e.g. cover-letter placeholder fill) before the
+            # browser navigates so a slow API call can't invalidate the page context.
+            filler.prefetch()
 
-            filler = filler_cls(page, job, candidate, cfg)
+            page.goto(job.apply_url, timeout=30_000, wait_until="domcontentloaded")
 
             # Screenshot before filling
             filler.screenshot("01_start", evidence)

@@ -49,12 +49,19 @@ class BaseFormFiller(ABC):
         self.candidate = candidate
         self.cfg       = cfg
         self.dry_run: bool = cfg["apply"].get("dry_run", False)
+        self._cl_text: str = ""  # pre-computed by prefetch() before page.goto()
 
     # -- abstract ------------------------------------------------------------
 
     @abstractmethod
     def fill_form(self) -> None:
         """Fill every field on the form. Raise NeedsUserInput when blocked."""
+
+    def prefetch(self) -> None:
+        """Run expensive pre-computation (LLM calls etc.) before the browser navigates.
+        Called by the runner before page.goto() so blocking I/O doesn't invalidate
+        an active Playwright page context. Override in subclasses as needed.
+        """
 
     # -- helpers -------------------------------------------------------------
 

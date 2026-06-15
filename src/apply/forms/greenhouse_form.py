@@ -15,6 +15,12 @@ log = logging.getLogger(__name__)
 
 class GreenhouseForm(BaseFormFiller):
 
+    def prefetch(self) -> None:
+        short = self.job.cover_letter == self.cfg["apply"]["cover_letter_short"]
+        self._cl_text = self.candidate.cover_letter_text(
+            self.job.title, self.job.company, short=short, description=self.job.description
+        )
+
     def fill_form(self) -> None:
         c = self.candidate
         job = self.job
@@ -35,8 +41,7 @@ class GreenhouseForm(BaseFormFiller):
             self.upload("input[name='resume']", c.resume_path)
 
         # -- Cover letter ----------------------------------------------------
-        short = job.cover_letter == self.cfg["apply"]["cover_letter_short"]
-        cl_text = c.cover_letter_text(job.title, job.company, short=short)
+        cl_text = self._cl_text or c.cover_letter_text(job.title, job.company)
 
         self.fill_first([
             "#cover_letter_text",
@@ -88,11 +93,32 @@ class GreenhouseForm(BaseFormFiller):
                     sel.select_option(label="Prefer not to say")
                 except Exception:
                     pass
-            elif "race" in label_text or "ethnicity" in label_text:
-                try:
-                    sel.select_option(label="Prefer not to say")
-                except Exception:
-                    pass
+            elif "pronoun" in label_text:
+                for opt in ["He/Him", "He/his", "he/him", "he/his"]:
+                    try:
+                        sel.select_option(label=opt)
+                        break
+                    except Exception:
+                        pass
+            elif "race" in label_text or "ethnicity" in label_text or "background" in label_text:
+                # Prefer decline; only fall back to "Other" if no decline option exists
+                declined = False
+                for opt in ["Prefer not to say", "I don't wish to answer",
+                            "I do not wish to answer", "Decline to state",
+                            "Decline to identify", "Choose not to disclose"]:
+                    try:
+                        sel.select_option(label=opt)
+                        declined = True
+                        break
+                    except Exception:
+                        pass
+                if not declined:
+                    for opt in ["Other", "Other (please specify)"]:
+                        try:
+                            sel.select_option(label=opt)
+                            break
+                        except Exception:
+                            pass
             elif "veteran" in label_text:
                 try:
                     sel.select_option(label="I am not a protected veteran")
@@ -105,18 +131,40 @@ class GreenhouseForm(BaseFormFiller):
                     sel.select_option(label="I do not wish to answer")
 
         # -- Unknown required fields → flag for manual review ----------------
+        _known = {
+            "first_name", "last_name", "email", "phone",
+            "resume", "cover_letter", "linkedin", "github",
+            "website", "portfolio", "twitter",
+        }
         for el in p.query_selector_all("input[required], textarea[required], select[required]"):
+            el_type = el.get_attribute("type") or "text"
+            if el_type == "file":
+                continue
+            val = el.input_value()
+            if val:
+                continue  # already filled
+
             el_id = el.get_attribute("id") or ""
-            known = {
-                "first_name", "last_name", "email", "phone",
-                "resume", "cover_letter", "linkedin", "github",
-            }
-            if not any(k in el_id.lower() for k in known):
-                val = el.input_value() if el.get_attribute("type") != "file" else "file"
-                if not val:
-                    label_el = p.query_selector(f"label[for='{el_id}']")
-                    label_text = label_el.inner_text() if label_el else el_id
-                    raise NeedsUserInput(f"Unknown required field: '{label_text}'")
+            el_name = el.get_attribute("name") or ""
+            identifier = el_id or el_name
+
+            if any(k in identifier.lower() for k in _known):
+                continue
+
+            # Resolve a human-readable label for the error message
+            label_text = ""
+            if el_id:
+                label_el = p.query_selector(f"label[for='{el_id}']")
+                if label_el:
+                    label_text = label_el.inner_text()
+            if not label_text:
+                label_text = (
+                    el.get_attribute("aria-label")
+                    or el.get_attribute("placeholder")
+                    or identifier
+                    or "unknown"
+                )
+            raise NeedsUserInput(f"Unknown required field: '{label_text}'")
 
         # -- Submit ----------------------------------------------------------
         self.submit("#submit_app, button[type='submit']")
