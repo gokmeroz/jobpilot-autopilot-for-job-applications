@@ -215,6 +215,23 @@ def _interactive_review(result) -> None:
 
     print(f"\n{'═' * W}\n")
 
+    # ── Sheet sync ────────────────────────────────────────────────────────────
+    from src.config import load as _load_cfg
+    from src.models import Status as _Status
+    from src.sheet import append_jobs as _append_jobs
+
+    sheet_jobs = (
+        [j.model_copy(update={"status": _Status.applied}) for j in applied] +
+        [j.model_copy(update={"status": _Status.queued})  for j in manual_jobs]
+    )
+    if sheet_jobs:
+        try:
+            n = _append_jobs(sheet_jobs, _load_cfg("config"))
+            if n:
+                print(f"  Sheet updated — {n} row(s) added.\n")
+        except Exception as exc:
+            print(f"  Sheet sync failed: {exc}\n")
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(

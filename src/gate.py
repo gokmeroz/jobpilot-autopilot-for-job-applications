@@ -88,11 +88,40 @@ def _gate_seniority(job: Job) -> str | None:
     return None
 
 
+# Title keywords that indicate industrial / defence / ERP domains the
+# candidate explicitly does not target — checked after _gate_role passes.
+_DOMAIN_DENYLIST_RE = re.compile(
+    r"\b("
+    r"scada|"
+    r"oil\s+[&+]?\s*gas|"
+    r"(?:radar|sonar|lidar)\s+software|radar\s+engineer|"
+    r"machinebouw|"
+    r"sps[\s\-]entwickler|sps[\s\-]developer|"   # SPS = PLC (industrial)
+    r"leittechnik|steuerungstechnik|"
+    r"delphi\s+(?:software\w*|developer|entwickler)|"
+    r"ms[\s\-]dynamics|dynamics[\s\-](?:ax|nav|bc)\b|dynamics\s+business\s+central|"
+    r"oracle\s+apex|"
+    r"odoo\b|"
+    r"servicenow\b|"
+    r"navision\b"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 def _gate_role(job: Job) -> str | None:
     """Return a reason string if the title has no tech/SWE signal."""
     if _TECH_TITLE_RE.search(job.title):
         return None
     return f"non-tech title: '{job.title}'"
+
+
+def _gate_domain(job: Job) -> str | None:
+    """Reject industrial/ERP/defence domain titles that don't match the candidate's target stack."""
+    m = _DOMAIN_DENYLIST_RE.search(job.title)
+    if m:
+        return f"domain denylist match '{m.group()}' in title: '{job.title}'"
+    return None
 
 
 def _gate_language(job: Job, allowed: list[str], german_ok: bool) -> str | None:
@@ -116,6 +145,7 @@ def check(job: Job) -> Job:
     checks = [
         _gate_age(job, cfg["max_age_hours"]),
         _gate_role(job),
+        _gate_domain(job),
         _gate_yoe(job, cfg["max_yoe"]),
         _gate_seniority(job),
         _gate_language(job, cfg["languages"], cfg.get("german_ok", False)),
