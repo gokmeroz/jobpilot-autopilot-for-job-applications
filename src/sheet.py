@@ -110,7 +110,7 @@ def append_jobs(jobs: list[Job], cfg: dict) -> int:
             job.location or "",
             _type(job),
             job.salary or "",
-            job.language,
+            "ENGLISH" if (job.language or "EN").upper() == "EN" else job.language.upper(),
             _stage(job),
             situation,
         ])
