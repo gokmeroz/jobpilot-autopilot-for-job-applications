@@ -45,19 +45,26 @@ _TEST_JOBS: dict[str, Job] = {
         ),
     ),
     "greenhouse": Job(
-        job_key     = build_job_key("Datadog", "Software Engineer - Early Career", "US"),
-        title       = "Software Engineer - Early Career",
-        company     = "Datadog",
-        country     = "US",
-        location    = "Remote, US",
+        job_key     = build_job_key("Figma", "Data Engineer", "REMOTE"),
+        title       = "Data Engineer",
+        company     = "Figma",
+        country     = "REMOTE",
+        location    = "Remote",
         remote      = RemoteType.remote,
         posted_at   = datetime.now(timezone.utc),
         source      = "greenhouse",
         source_tier = 1,
         ats         = "greenhouse",
-        apply_url   = "https://job-boards.greenhouse.io/datadog/jobs/7646452",
+        apply_url   = "https://boards.greenhouse.io/figma/jobs/5220003004",
         route       = Route.auto,
         status      = Status.scored,
+        description = (
+            "Figma is building tools to make design accessible to everyone. "
+            "As a Data Engineer you will build and maintain pipelines that power "
+            "product analytics, experimentation, and business intelligence. "
+            "You will work with large-scale data infrastructure using Python, SQL, "
+            "Spark, and cloud data warehouses."
+        ),
     ),
 }
 
