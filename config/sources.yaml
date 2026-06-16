@@ -7,7 +7,7 @@
 # Greenhouse  (token = slug in https://boards.greenhouse.io/<token>)
 # ---------------------------------------------------------------------------
 greenhouse:
-  # Tier 1
+  # Tier 1 — infrastructure / dev tools / cloud
   Stripe:         stripe
   Datadog:        datadog
   Cloudflare:     cloudflare
@@ -19,31 +19,51 @@ greenhouse:
   Figma:          figma
   Brex:           brex
   Scale AI:       scaleai
-  # Tier 2
+  # Tier 2 — product / SaaS / fintech
   Adyen:          adyen
   Webflow:        webflow
   Netlify:        netlify
   Descript:       descript
+  JetBrains:      jetbrains
+  Amplitude:      amplitude
+  Contentful:     contentful
+  Typeform:       typeform
+  Mercury:        mercury
+  Pleo:           pleo
+  N26:            n26
+  GoCardless:     gocardless
+  Remote.com:     remote
 
 # ---------------------------------------------------------------------------
 # Ashby  (handle = slug in https://jobs.ashbyhq.com/<handle>)
 # ---------------------------------------------------------------------------
 ashby:
+  # Developer tools / infra
   Supabase:       supabase
   Linear:         linear
   Vercel:         vercel
   Resend:         resend
-  Vapi:           vapi
   Raycast:        raycast
+  Neon:           neon
+  Render:         render
+  Warp:           warp
+  Cursor:         cursor
+  Runway:         runway
+  Infisical:      infisical
+  Mintlify:       mintlify
+  Inngest:        inngest
+  Clerk:          clerk
+  # Product / SaaS
   PostHog:        posthog
   Zapier:         zapier
   Miro:           miro
   Airtable:       airtable
   Loom:           loom
+  Vapi:           vapi
 
 # ---------------------------------------------------------------------------
 # Lever  (slug = https://api.lever.co/v0/postings/<slug>)
-# Most companies have migrated away from Lever public boards.
-# Verify a slug exists before adding: curl https://api.lever.co/v0/postings/<slug>?mode=json
+# Verify before adding: curl https://api.lever.co/v0/postings/<slug>?mode=json
 # ---------------------------------------------------------------------------
-lever: {}
+lever:
+  Spotify:        spotify
