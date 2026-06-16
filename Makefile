@@ -41,6 +41,16 @@ source: ## Run one source: make source SOURCE=greenhouse
 source-v: ## Run one source with verbose logging: make source-v SOURCE=ashby
 	$(PYTHON) main.py --source $(SOURCE) -v
 
+# ── Board-specific quick runs ─────────────────────────────────────────────────
+relocateme: ## Discover from Relocate.me only (EU relocation jobs)
+	$(PYTHON) main.py --source relocateme
+
+ukhired: ## Discover from UKHired only (UK visa sponsorship jobs)
+	$(PYTHON) main.py --source ukhired
+
+wellfound: ## Discover from Wellfound only via Apify (needs APIFY_TOKEN)
+	$(PYTHON) main.py --source wellfound
+
 # ── Form filler tests ─────────────────────────────────────────────────────────
 test-greenhouse: ## Test Greenhouse filler — opens browser, fills form, dry_run=true
 	$(PYTHON) test_apply.py greenhouse

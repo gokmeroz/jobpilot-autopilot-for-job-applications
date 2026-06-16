@@ -10,6 +10,9 @@ Usage:
     python main.py --source remotive      # only Remotive API
     python main.py --source weworkremotely  # only WeWorkRemotely RSS
     python main.py --source remoteok      # only RemoteOK API
+    python main.py --source relocateme    # only Relocate.me (EU relocation jobs)
+    python main.py --source ukhired       # only UKHired (UK visa sponsorship jobs)
+    python main.py --source wellfound     # only Wellfound via Apify (needs APIFY_TOKEN)
     python main.py --source linkedin      # only LinkedIn via Apify (needs APIFY_TOKEN)
     python main.py --dry-run              # discover + gate only, no LLM calls
     python main.py --run-id my-run-001    # override the run ID
@@ -29,6 +32,9 @@ _ALL_SOURCES = [
     "remotive",
     "weworkremotely",
     "remoteok",
+    "relocateme",
+    "ukhired",
+    "wellfound",
     "linkedin",
 ]
 
@@ -50,10 +56,13 @@ def _discover(sources: list[str]) -> list:
     from src.discover.apis.remoteok import fetch as remoteok_fetch
     from src.discover.apis.remotive import fetch as remotive_fetch
     from src.discover.apis.weworkremotely import fetch as wwr_fetch
+    from src.discover.apis.relocateme import fetch as relocateme_fetch
+    from src.discover.apis.ukhired import fetch as ukhired_fetch
     from src.discover.ats.ashby import fetch as ashby_fetch
     from src.discover.ats.greenhouse import fetch as greenhouse_fetch
     from src.discover.ats.lever import fetch as lever_fetch
     from src.discover.scrapers.linkedin import fetch as linkedin_fetch
+    from src.discover.scrapers.wellfound import fetch as wellfound_fetch
 
     jobs = []
 
@@ -84,6 +93,18 @@ def _discover(sources: list[str]) -> list:
     if "remoteok" in sources:
         print("Fetching from RemoteOK…")
         jobs += remoteok_fetch()
+
+    if "relocateme" in sources:
+        print("Fetching from Relocate.me…")
+        jobs += relocateme_fetch()
+
+    if "ukhired" in sources:
+        print("Fetching from UKHired…")
+        jobs += ukhired_fetch()
+
+    if "wellfound" in sources:
+        print("Fetching from Wellfound (via Apify)…")
+        jobs += wellfound_fetch()
 
     if "linkedin" in sources:
         print("Fetching from LinkedIn (via Apify)…")
@@ -240,7 +261,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--source", "-s",
-        choices=_ALL_SOURCES + ["linkedin", "all"],
+        choices=_ALL_SOURCES + ["all"],
         default="all",
         help="Which source to discover from (default: all)",
     )
