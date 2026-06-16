@@ -1,333 +1,305 @@
-# JobPilot — autopilot for job applications
+# JobPilot — Autopilot for Job Applications
 
-JobPilot is an open-source job-application pipeline for discovering fresh early-career Software Engineering and AI/ML roles, scoring them against your CV, auto-applying where it is safe and supported, and routing the rest into a manual review queue.
+An open-source, self-hosted job-search pipeline that **discovers**, **scores**, and **auto-applies** to early-career software engineering roles — all from your own machine, with your own data.
 
-It is designed for candidates targeting **new grad**, **junior**, and **early-career** roles across:
-
-**Germany · Netherlands · Ireland · United Kingdom · Turkey · worldwide remote**
-
-The pipeline focuses on jobs posted within the last **48 hours**, filters out roles that are clearly above the candidate’s experience level, and keeps every decision traceable through a Google Sheet and session report.
-
-![JobPilot pipeline](assets/jobpilot-pipeline.png)
-
----
-
-## What it does
-
-JobPilot turns scattered job sources into a structured application workflow:
-
-```text
-discover → normalize → gate → dedupe → score → apply/queue → sync → report
+```
+discover → normalize → gate → dedupe → score → review → apply → sync → report
 ```
 
-It collects jobs from multiple source types, normalizes them into a unified schema, filters them through candidate-specific gates, scores them with an LLM rubric, and then separates them into:
+---
 
-* **Auto-apply jobs** — supported ATS flows such as Greenhouse, Lever, Ashby, and Workable.
-* **Manual queue jobs** — Workday, LinkedIn Easy Apply, CAPTCHA-protected flows, or anything requiring human judgment.
+## Why JobPilot?
 
-Everything is written back to a Google Sheet so the candidate has a clean ledger of discovered, skipped, queued, and applied roles.
+Job searching at scale is repetitive, error-prone, and time-consuming. JobPilot turns that process into a structured, auditable pipeline:
+
+- Pulls from **multiple job boards and ATS APIs** in one run
+- Filters by recency, seniority, location, and tech stack match
+- Scores each role against your candidate profile using an **LLM rubric**
+- Stops for **human review** before touching any submit button
+- Auto-fills and submits forms on supported ATS platforms via **Playwright**
+- Writes everything to a **Google Sheet** for a clean application ledger
+
+Every decision is logged. Every skipped job has a reason. Nothing is invented.
 
 ---
 
-## Pipeline overview
+## Tech Stack
+
+| Layer | Tools |
+|---|---|
+| Language | Python 3.12+ |
+| Browser automation | Playwright (Chromium) |
+| LLM scoring & Q&A | Anthropic Claude (Haiku for fast scoring, configurable) |
+| Job discovery | ATS APIs, Apify scrapers, HTTP adapters |
+| Persistence | SQLite ledger + Google Sheets |
+| Config | YAML + `.env` |
+
+---
+
+## Pipeline Stages
 
 ### 1. Discover
-
-JobPilot can discover roles from:
-
-* ATS-direct sources
-* Job APIs
-* Apify scrapers
-* Niche job boards
-* Remote-job boards
-* Relocation and visa-sponsorship boards
-
-ATS-direct sources are preferred because they usually provide cleaner metadata, real posting timestamps, and canonical application links.
-
----
+Fetch fresh jobs from configured sources. ATS-direct sources (Greenhouse, Lever, Ashby) are preferred — cleaner metadata, real timestamps, canonical application URLs.
 
 ### 2. Normalize
-
-All incoming jobs are converted into a unified JSONL schema.
-
-Each job is normalized into consistent fields such as:
-
-* company
-* title
-* location
-* remote policy
-* seniority
-* posting timestamp
-* source URL
-* canonical application URL
-* ATS provider
-* language requirements
-* visa or relocation signals
-* description text
-* detected tech stack
-
----
+All incoming jobs are converted into a unified `Job` schema (`src/models.py`). Fields include: company, title, location, remote policy, seniority, posting timestamp, ATS provider, tech stack, visa/relocation signals.
 
 ### 3. Gate
+Fast rule-based pre-filter before any LLM call. Configurable per run:
+- Max age (e.g. 48 hours)
+- Max experience requirement (e.g. 0–1 years)
+- Language requirements
+- Target countries / remote policies
 
-Before scoring, JobPilot filters out jobs that clearly do not match the candidate profile.
-
-Typical gates include:
-
-* posted within the last **48 hours**
-* maximum **0–1 years of experience**
-* English-friendly or candidate-language-compatible
-* no strict local citizenship requirement
-* no unsupported local-only language requirement
-* relevant to Software Engineering, Backend, Full-Stack, AI Engineering, or ML Engineering
-* compatible with relocation, visa sponsorship, Turkey, or worldwide remote work
-
-Jobs that fail hard requirements are skipped before any LLM scoring happens.
-
----
-
-### 4. Resolve and dedupe
-
-Scraped jobs are treated as discovery hints, not final truth.
-
-JobPilot resolves each job to its canonical application URL whenever possible, then deduplicates roles across sources using:
-
-* canonical ATS URL
-* company name
-* job title
-* location
-* posting date
-* source ledger history
-
-This prevents applying to the same role multiple times from different job boards.
-
----
+### 4. Dedupe
+Canonical ATS URLs are resolved and checked against the SQLite ledger. Already-applied or already-seen jobs are skipped.
 
 ### 5. Score
+Each gated job is scored against your `CANDIDATE.md` profile by an LLM. The rubric evaluates role fit, tech fit, seniority fit, location/relocation fit, and application feasibility. Configurable threshold (default `≥ 6.5 / 10`).
 
-Each remaining job is scored against the candidate profile.
+### 6. Review (human in the loop)
+The pipeline **stops** after scoring and writes a review file to `manual_queue/`. You approve specific jobs before anything is submitted. Auto-apply without review confirmation never happens.
 
-Scoring happens in two stages:
+### 7. Apply
+Playwright fills and submits forms on supported ATS platforms:
 
-1. **Prescore** — fast rule-based filtering.
-2. **LLM score** — detailed fit analysis.
+| ATS | Status |
+|---|---|
+| Greenhouse | Supported |
+| Ashby | Supported |
+| Lever | Supported |
+| Workable | Supported |
+| LinkedIn Easy Apply | Manual queue only |
+| Workday | Manual queue only |
+| CAPTCHA-protected | Manual queue only |
 
-The LLM score evaluates:
+If the filler hits a field it cannot answer from your profile, it raises `NeedsUserInput` and routes the job to the manual queue — never guesses, never fabricates.
 
-* role fit
-* seniority fit
-* tech-stack match
-* experience expectations
-* location and relocation fit
-* visa or remote compatibility
-* language requirements
-* application risk
-* overall candidate competitiveness
-
-Only roles above the configured threshold are moved forward.
-
-Default threshold:
-
-```text
-LLM score ≥ 6.5 / 10
-```
-
----
-
-### 6. Apply or queue
-
-JobPilot splits approved jobs into two paths.
-
-#### Auto-apply
-
-Supported flows can be automated with Playwright when the application form is safe, predictable, and answerable from candidate data.
-
-Supported ATS targets include:
-
-* Greenhouse
-* Lever
-* Ashby
-* Workable
-
-#### Manual queue
-
-Some flows are intentionally never automated.
-
-These are routed into a human review queue instead:
-
-* LinkedIn Easy Apply
-* Workday
-* CAPTCHA-protected forms
-* forms with unknown required answers
-* forms requiring custom judgment
-* anything with unclear consent, demographic, or legal questions
-
-JobPilot does not guess sensitive answers and does not fabricate candidate information.
-
----
-
-### 7. Sync
-
-Every discovered and processed job is appended to Google Sheets.
-
-The sheet acts as the source of truth for:
-
-* discovered jobs
-* skipped jobs
-* duplicate jobs
-* scored jobs
-* queued jobs
-* submitted applications
-* manual-review items
-* session history
-
----
-
-### 8. Report
-
-At the end of each run, JobPilot writes a session report covering:
-
-* total jobs discovered
-* jobs passing the gate
-* duplicates removed
-* jobs scored
-* jobs auto-applied
-* jobs queued for review
-* rejection reasons
-* source distribution
-* country distribution
-* ATS distribution
+### 8. Sync & Report
+Applied and queued jobs are written to Google Sheets. A session report is appended to `history/`.
 
 ---
 
 ## Quickstart
 
-See [`SETUP.md`](SETUP.md) for the full setup guide.
+### Prerequisites
 
-Short version:
+- Python 3.12+
+- A Playwright-compatible system (macOS, Linux, Windows WSL2)
+- An [Anthropic API key](https://console.anthropic.com/)
+- A Google Cloud service account with Sheets API access (optional, for sheet sync)
+
+### Setup
 
 ```bash
-make setup
+git clone https://github.com/your-username/jobpilot-autopilot-for-job-applications.git
+cd jobpilot-autopilot-for-job-applications
+
+python -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+playwright install chromium
 ```
 
-This installs the virtual environment, dependencies, Playwright browsers, pre-commit hooks, and local working directories.
+### Configure
 
-Then configure your private files:
+Copy the example files and fill in your details:
 
-```text
-.env
-CANDIDATE.md
+```bash
+cp CANDIDATE.EXAMPLE.md CANDIDATE.md
+cp .env.example .env
+```
+
+`CANDIDATE.md` is your single source of truth. The pipeline answers forms **only** from this file — no data is invented. See [`CANDIDATE.EXAMPLE.md`](CANDIDATE.EXAMPLE.md) for the full schema.
+
+Your `.env` needs at minimum:
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Adjust `config/config.yaml` for your target markets, score threshold, and apply settings.
+
+### Run
+
+```bash
+# Discover and score — stops before applying
+python main.py
+
+# After reviewing manual_queue/<run_id>_review.md, apply approved jobs
+python main.py --apply
+```
+
+---
+
+## Project Structure
+
+```
+src/
+  models.py          Job schema, Status enum, RemoteType
+  normalize.py       Canonical job key builder, field normalizer
+  gate.py            Pre-LLM filter rules
+  ledger.py          SQLite dedup store
+  score.py           LLM scoring rubric
+  pipeline.py        Orchestration — wires all stages together
+  sheet.py           Google Sheets sync
+  apply/
+    base.py          BaseFormFiller — shared helpers, submit(), prefetch()
+    runner.py        Playwright session manager, filler dispatcher
+    candidate.py     Loads CANDIDATE.md, resolves cover letter text
+    forms/
+      greenhouse_form.py
+      ashby_form.py
+      lever_form.py
+      workable_form.py
+  discover/
+    arbeitnow.py     Example ATS-direct adapter
+    ...              Add your own adapters here
+
+config/
+  config.yaml        Run configuration
+
 assets/
+  resume/            Your resume (gitignored)
+  cover_letters/     Cover letter templates (gitignored)
 ```
 
-These files are intentionally gitignored.
+---
 
-Run the pipeline in review-first mode:
+## Adding a New Job Source
+
+Create a module in `src/discover/` that yields `Job` objects:
+
+```python
+# src/discover/my_source.py
+from src.models import Job, RemoteType, Route, Status
+from src.normalize import build_job_key
+
+def fetch(cfg: dict) -> list[Job]:
+    jobs = []
+    # ... your HTTP/scraping logic
+    jobs.append(Job(
+        job_key   = build_job_key(company, title, country),
+        title     = title,
+        company   = company,
+        apply_url = url,
+        ats       = "greenhouse",   # or "ashby", "lever", etc.
+        source    = "my_source",
+        ...
+    ))
+    return jobs
+```
+
+Then register it in `src/pipeline.py` alongside the existing adapters.
+
+---
+
+## Adding a New ATS Form Filler
+
+Subclass `BaseFormFiller` in `src/apply/forms/`:
+
+```python
+# src/apply/forms/myats_form.py
+from src.apply.base import BaseFormFiller, NeedsUserInput
+
+class MyAtsForm(BaseFormFiller):
+    def prefetch(self) -> None:
+        # Run LLM calls here — before page.goto() — to avoid blocking the browser
+        self._cl_text = self.candidate.cover_letter_text(
+            self.job.title, self.job.company, description=self.job.description
+        )
+
+    def fill_form(self) -> None:
+        p = self.page
+        c = self.candidate
+        # fill fields, handle custom questions, call self.submit(selector)
+```
+
+Register it in `src/apply/runner.py`:
+
+```python
+_FILLERS: dict[str, type[BaseFormFiller]] = {
+    ...
+    "myats": MyAtsForm,
+}
+```
+
+The `prefetch()` hook exists because LLM API calls inside an active Playwright session can cause the browser context to close. Always do your async/blocking work in `prefetch()`, not `fill_form()`.
+
+---
+
+## Testing
+
+Run the form filler smoke tests with a real browser:
 
 ```bash
-make run
+# Test Ashby filler (dry_run=true by default — never submits)
+python test_apply.py ashby
+
+# Test Greenhouse filler
+python test_apply.py greenhouse
 ```
 
-This stops after planning and does not submit applications.
-
-After reviewing the plan:
-
-```bash
-APPROVE=1 make apply
-make sync
-make report
-```
+Set `dry_run: false` in `config/config.yaml` only when you intend to actually submit an application.
 
 ---
 
-## Candidate data
+## Configuration Reference
 
-JobPilot only answers application forms using explicit information from `CANDIDATE.md`.
+```yaml
+# config/config.yaml
 
-Example candidate data lives in:
+gate:
+  max_age_hours: 48       # only jobs posted within this window
+  max_yoe: 1              # skip roles requiring more years of experience
+  languages: [EN]         # accepted posting languages
 
-```text
-CANDIDATE.EXAMPLE.md
-```
+score:
+  threshold: 6.5          # minimum LLM score to pass to apply stage
+  model: claude-haiku-4-5-20251001  # swap to sonnet for higher quality
 
-Your real candidate profile should be stored in:
-
-```text
-CANDIDATE.md
-```
-
-This file should never be committed.
-
----
-
-## Repository files
-
-```text
-README.md              Project overview
-SETUP.md               Installation and configuration guide
-SPEC.md                Product and technical specification
-CANDIDATE.EXAMPLE.md   Safe example candidate profile
-.gitignore             Protects secrets, local data, and personal files
+apply:
+  dry_run: true           # true = fill form + screenshot, never click submit
+  headless: true          # false = watch the browser fill the form
+  max_attempts: 2
+  resume_file: assets/resume/resume.pdf
+  cover_letter_short: assets/cover_letters/cover_letter_short.md
+  cover_letter_long: assets/cover_letters/cover_letter_long.md
 ```
 
 ---
 
-## Design principles
+## Safety & Ethics
 
-### Trust real timestamps
-
-ATS-direct APIs are treated as higher-trust sources.
-
-Scraped sources are discovery-only until they resolve to a canonical application URL.
-
----
-
-### Never fabricate answers
-
-Every application answer must come from candidate-provided data.
-
-If JobPilot cannot answer a field confidently, the job is queued for manual review.
+- **Never fabricates answers.** Every field must map to a key in `CANDIDATE.md`. Unknown required fields route to manual review.
+- **Human review is mandatory.** The pipeline never auto-applies without explicit confirmation.
+- **PII stays local.** `CANDIDATE.md`, resumes, cover letters, secrets, and all generated artifacts are gitignored.
+- **Respect platform ToS.** Do not bypass CAPTCHAs, rate limits, or login walls. The manual queue exists precisely for those flows.
 
 ---
 
-### Avoid ToS roulette
+## Contributing
 
-JobPilot does not automate flows that are legally, technically, or ethically risky.
+Contributions are welcome. JobPilot is intentionally modular — the most impactful areas are:
 
-LinkedIn Easy Apply, Workday, CAPTCHA-protected forms, and ambiguous flows are manual-review only by design.
+- **New job source adapters** (`src/discover/`) — more boards, more niche markets
+- **New ATS form fillers** (`src/apply/forms/`) — WorkDay, SmartRecruiters, Rippling, etc.
+- **Scoring improvements** — better rubric prompts, prescore heuristics
+- **Sheet / export integrations** — Notion, Airtable, CSV export
+- **Testing** — more smoke tests, mock ATS fixtures
 
----
+To contribute:
 
-### Keep humans in control
+1. Fork the repo and create a feature branch
+2. Keep changes focused — one adapter or one fixer per PR
+3. Add or update the relevant smoke test
+4. Open a PR with a short description of what problem it solves
 
-Auto-apply is opt-in.
-
-The default workflow is review-first:
-
-```text
-discover → score → plan → stop
-```
-
-Applications are only submitted after explicit approval.
-
----
-
-### Keep PII out of git
-
-Personal data, secrets, resumes, generated application artifacts, cookies, browser state, and candidate files are gitignored.
-
-A pre-commit guard should block accidental commits of sensitive files.
-
----
-
-## Safety notes
-
-Use this project responsibly.
-
-Respect the terms of the sites you query. Do not bypass CAPTCHAs, rate limits, paywalls, login restrictions, or platform rules. JobPilot is designed to assist with organization and safe application workflows, not to spam employers or abuse job platforms.
+If you are unsure whether something fits the project scope, open an issue first.
 
 ---
 
 ## License
 
-MIT-style use at your own risk.
+MIT — use freely, build on it, ship your own version. Attribution appreciated but not required.

@@ -15,6 +15,7 @@ import sys
 from datetime import datetime, timezone
 
 from src.apply.runner import apply_job
+from src.config import load as _load_cfg
 from src.models import Job, RemoteType, Route, Status
 from src.normalize import build_job_key
 
@@ -45,25 +46,27 @@ _TEST_JOBS: dict[str, Job] = {
         ),
     ),
     "greenhouse": Job(
-        job_key     = build_job_key("Figma", "Data Engineer", "REMOTE"),
-        title       = "Data Engineer",
+        job_key     = build_job_key("Figma", "Software Engineer, AI Product", "GB"),
+        title       = "Software Engineer, AI Product",
         company     = "Figma",
-        country     = "REMOTE",
-        location    = "Remote",
-        remote      = RemoteType.remote,
+        country     = "GB",
+        location    = "London, United Kingdom",
+        remote      = RemoteType.onsite,
         posted_at   = datetime.now(timezone.utc),
         source      = "greenhouse",
         source_tier = 1,
         ats         = "greenhouse",
-        apply_url   = "https://boards.greenhouse.io/figma/jobs/5220003004",
+        apply_url   = "https://boards.greenhouse.io/figma/jobs/5551697004",
         route       = Route.auto,
         status      = Status.scored,
         description = (
-            "Figma is building tools to make design accessible to everyone. "
-            "As a Data Engineer you will build and maintain pipelines that power "
-            "product analytics, experimentation, and business intelligence. "
-            "You will work with large-scale data infrastructure using Python, SQL, "
-            "Spark, and cloud data warehouses."
+            "Figma is building the next generation of design tools with AI at the core. "
+            "As a Software Engineer on the AI Product team you will build AI-powered features "
+            "that help designers and developers work faster. "
+            "You will work across the full stack — TypeScript, React, Node.js — integrating "
+            "LLMs, building product surfaces, and collaborating closely with design. "
+            "We are looking for engineers who care deeply about product quality, "
+            "move fast, and are excited about AI's potential to transform creative tools."
         ),
     ),
 }
@@ -75,11 +78,15 @@ def main() -> None:
         print(f"Unknown ATS '{ats}'. Choose: {list(_TEST_JOBS)}")
         sys.exit(1)
 
+    cfg = _load_cfg("config")
+    dry_run = cfg["apply"].get("dry_run", True)
+    headless = cfg["apply"].get("headless", True)
+
     print(f"\nTesting {ats.upper()} form filler")
-    print(f"  Job    : {job.title} @ {job.company}")
-    print(f"  URL    : {job.apply_url}")
-    print(f"  dry_run: True  (form fills but never submits)")
-    print(f"  headless: False  (browser window will open)\n")
+    print(f"  Job      : {job.title} @ {job.company}")
+    print(f"  URL      : {job.apply_url}")
+    print(f"  dry_run  : {dry_run}  ({'form fills but never submits' if dry_run else 'WILL SUBMIT FOR REAL'})")
+    print(f"  headless : {headless}\n")
 
     result = apply_job(job, run_id="test_apply")
 
