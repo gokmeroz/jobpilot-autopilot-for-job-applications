@@ -280,12 +280,16 @@ class GreenhouseForm(BaseFormFiller):
                 except Exception:
                     pass
             elif "pronoun" in label_text:
-                for opt in ["He/Him", "He/his", "he/him", "he/his"]:
-                    try:
-                        sel.select_option(label=opt)
-                        break
-                    except Exception:
-                        pass
+                try:
+                    options = sel.evaluate(
+                        "e => Array.from(e.options).map(o => ({v: o.value, t: o.text.trim()}))"
+                    )
+                    for opt in options:
+                        if re.search(r"\bhe\b", opt["t"], re.IGNORECASE):
+                            sel.select_option(value=opt["v"])
+                            break
+                except Exception:
+                    pass
             elif "race" in label_text or "ethnicity" in label_text or "background" in label_text:
                 # Prefer decline; only fall back to "Other" if no decline option exists
                 declined = False

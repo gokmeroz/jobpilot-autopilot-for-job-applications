@@ -238,7 +238,8 @@ def load_candidate() -> CandidateData:
     text = (ROOT / "CANDIDATE.md").read_text()
 
     full_name = _extract(r"^- Full name:\s*(.+)$", text)
-    parts = full_name.split(None, 1)
+    # rsplit on last space: "Goktug Mert Ozdogan" → first="Goktug Mert", last="Ozdogan"
+    parts = full_name.rsplit(None, 1)
 
     # Email may be wrapped in markdown link: [addr](mailto:addr)
     raw_email = _extract(r"^- Email:\s*(.+)$", text)

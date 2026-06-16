@@ -186,12 +186,17 @@ class AshbyForm(BaseFormFiller):
                 pass
 
         for pronoun_label in ["pronoun", "Pronouns"]:
-            for opt in ["He/Him", "He/his", "he/him", "he/his"]:
-                try:
-                    p.get_by_label(pronoun_label, exact=False).first.select_option(label=opt)
-                    break
-                except Exception:
-                    pass
+            try:
+                sel = p.get_by_label(pronoun_label, exact=False).first
+                options = sel.evaluate(
+                    "e => Array.from(e.options).map(o => ({v: o.value, t: o.text.trim()}))"
+                )
+                for opt in options:
+                    if _re.search(r"\bhe\b", opt["t"], _re.IGNORECASE):
+                        sel.select_option(value=opt["v"])
+                        break
+            except Exception:
+                pass
 
         for ethnicity_label in ["race", "ethnicity", "background"]:
             try:
@@ -224,7 +229,11 @@ class AshbyForm(BaseFormFiller):
             "website", "portfolio", "location", "city", "twitter",
             "cover", "letter", "resume", "projects",
         }
-        for el in p.locator("[aria-required='true'], [required]").all():
+        try:
+          required_els = p.locator("[aria-required='true'], [required]").all()
+        except Exception:
+          required_els = []
+        for el in required_els:
             try:
                 tag = el.evaluate("e => e.tagName.toLowerCase()")
                 if tag not in ("input", "textarea"):
