@@ -67,7 +67,23 @@ def _llm_answer_question(label: str, candidate, job) -> str:
         return ""
 
 
-def _answer_custom_question(label: str, el, candidate, job) -> bool:
+def _select_react_combobox(el, page, he_pattern: str) -> bool:
+    """Click a React Select combobox and pick the first option matching he_pattern."""
+    try:
+        el_id = el.get_attribute("id") or ""
+        el.click()
+        listbox_sel = f"#react-select-{el_id}-listbox [role='option']"
+        page.wait_for_selector(listbox_sel, timeout=3_000)
+        for opt in page.locator(listbox_sel).all():
+            if re.search(he_pattern, opt.inner_text().strip(), re.IGNORECASE):
+                opt.click()
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
     """Try to fill a custom Greenhouse question field. Returns True if handled."""
     ll = label.lower().strip()
     tag = el.evaluate("e => e.tagName.toLowerCase()")
@@ -135,6 +151,37 @@ def _answer_custom_question(label: str, el, candidate, job) -> bool:
         if tag == "select":
             return _try_select(ans)
         return _safe_fill(el, ans)
+
+    # --- EEO fields — always select, never type ---
+    if re.search(r"pronoun", ll):
+        if tag == "select":
+            try:
+                options = el.evaluate(
+                    "e => Array.from(e.options).map(o => ({v: o.value, t: o.text.trim()}))"
+                )
+                for opt in options:
+                    if re.search(r"\bhe\b", opt["t"], re.IGNORECASE):
+                        el.select_option(value=opt["v"])
+                        return True
+            except Exception:
+                pass
+        elif (el.get_attribute("role") or "") == "combobox" and page:
+            return _select_react_combobox(el, page, r"\bhe\b")
+        return False  # don't type pronouns into a text field
+
+    if re.search(r"gender", ll):
+        if tag == "select":
+            return _try_select("Prefer not to say", "Prefer Not to Say", "Non-binary / third gender")
+        return False
+
+    if re.search(r"race|ethnicity|background", ll):
+        if tag == "select":
+            return _try_select(
+                "Prefer not to say", "I don't wish to answer",
+                "I do not wish to answer", "Decline to state",
+                "Decline to identify", "Choose not to disclose", "Other",
+            )
+        return False
 
     # --- LLM fallback for open text/textarea ---
     if tag in ("input", "textarea") and el_type not in ("file", "hidden", "checkbox", "radio"):
@@ -243,7 +290,7 @@ class GreenhouseForm(BaseFormFiller):
                         continue
                 except Exception:
                     pass
-                answered = _answer_custom_question(label_text, field_el, c, job)
+                answered = _answer_custom_question(label_text, field_el, c, job, page=p)
                 if not answered:
                     log.warning("unanswered custom question: %r", label_text)
             except Exception as exc:
