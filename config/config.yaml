@@ -65,6 +65,6 @@ ghost_after_days: 21
 
 apify:
   actor_id: "curious_coder/linkedin-jobs-scraper"
-  wellfound_actor_id: "bebity/wellfound-jobs-scraper"
+  wellfound_actor_id: "crawlerbros/wellfound-scraper"
   timeout_secs: 300       # max seconds to wait for actor run
   pages_per_query: 1      # results per search URL (25 jobs/page)
