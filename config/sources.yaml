@@ -1,0 +1,49 @@
+# config/sources.yaml
+# Company lists for ATS direct adapters.
+# Format: "Display Name": board-slug/handle
+# Add new companies here — no code changes needed.
+
+# ---------------------------------------------------------------------------
+# Greenhouse  (token = slug in https://boards.greenhouse.io/<token>)
+# ---------------------------------------------------------------------------
+greenhouse:
+  # Tier 1
+  Stripe:         stripe
+  Datadog:        datadog
+  Cloudflare:     cloudflare
+  GitLab:         gitlab
+  MongoDB:        mongodb
+  Elastic:        elastic
+  Grafana Labs:   grafanalabs
+  Canonical:      canonical
+  Figma:          figma
+  Brex:           brex
+  Scale AI:       scaleai
+  # Tier 2
+  Adyen:          adyen
+  Webflow:        webflow
+  Netlify:        netlify
+  Descript:       descript
+
+# ---------------------------------------------------------------------------
+# Ashby  (handle = slug in https://jobs.ashbyhq.com/<handle>)
+# ---------------------------------------------------------------------------
+ashby:
+  Supabase:       supabase
+  Linear:         linear
+  Vercel:         vercel
+  Resend:         resend
+  Vapi:           vapi
+  Raycast:        raycast
+  PostHog:        posthog
+  Zapier:         zapier
+  Miro:           miro
+  Airtable:       airtable
+  Loom:           loom
+
+# ---------------------------------------------------------------------------
+# Lever  (slug = https://api.lever.co/v0/postings/<slug>)
+# Most companies have migrated away from Lever public boards.
+# Verify a slug exists before adding: curl https://api.lever.co/v0/postings/<slug>?mode=json
+# ---------------------------------------------------------------------------
+lever: {}

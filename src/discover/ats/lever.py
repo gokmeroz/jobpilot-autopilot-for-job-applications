@@ -131,7 +131,8 @@ def fetch(
     """Fetch open jobs from all target companies on Lever."""
     cfg = load("config")
     max_age_hours: float = cfg["gate"]["max_age_hours"]
-    targets = companies or COMPANIES
+    sources = load("sources")
+    targets = companies or sources.get("lever") or COMPANIES
 
     all_jobs: list[Job] = []
 

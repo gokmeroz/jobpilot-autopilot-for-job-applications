@@ -26,20 +26,11 @@ SOURCE = "ashby"
 SOURCE_TIER = 1
 REQUEST_DELAY = 0.4
 
-# Company display name → Ashby board handle — verified slugs only
+# Fallback company list — used only if config/sources.yaml is missing or empty.
+# Prefer editing config/sources.yaml over this dict.
 COMPANIES: dict[str, str] = {
     "Supabase":     "supabase",
     "Linear":       "linear",
-    "Vercel":       "vercel",
-    "Resend":       "resend",
-    "Vapi":         "vapi",
-    "Raycast":      "raycast",
-    # Migrated from Lever / newly added
-    "PostHog":      "posthog",
-    "Zapier":       "zapier",
-    "Miro":         "miro",
-    "Airtable":     "airtable",
-    "Loom":         "loom",
 }
 
 _VISA_RE = re.compile(
@@ -155,7 +146,8 @@ def fetch(
     """Fetch open jobs from all target companies on Ashby."""
     cfg = load("config")
     max_age_hours: float = cfg["gate"]["max_age_hours"]
-    targets = companies or COMPANIES
+    sources = load("sources")
+    targets = companies or sources.get("ashby") or COMPANIES
 
     all_jobs: list[Job] = []
 

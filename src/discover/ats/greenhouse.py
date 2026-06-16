@@ -27,27 +27,11 @@ SOURCE = "greenhouse"
 SOURCE_TIER = 1
 REQUEST_DELAY = 0.4   # seconds between company requests
 
-# Target companies → their Greenhouse board token.
-# Token is the slug in: https://boards.greenhouse.io/<token>
-# Add more here as the pipeline grows.
+# Fallback company list — used only if config/sources.yaml is missing or empty.
+# Prefer editing config/sources.yaml over this dict.
 COMPANIES: dict[str, str] = {
-    # Tier 1 — verified slugs
     "Stripe":       "stripe",
-    "Datadog":      "datadog",
-    "Cloudflare":   "cloudflare",
-    "GitLab":       "gitlab",
-    "MongoDB":      "mongodb",
-    "Elastic":      "elastic",
-    "Grafana Labs": "grafanalabs",
-    "Canonical":    "canonical",
     "Figma":        "figma",
-    "Brex":         "brex",
-    "Scale AI":     "scaleai",
-    # Tier 2 — verified slugs
-    "Adyen":        "adyen",
-    "Webflow":      "webflow",
-    "Netlify":      "netlify",
-    "Descript":     "descript",
 }
 
 # Keywords in content that suggest visa/relocation support
@@ -250,7 +234,8 @@ def fetch(
     """
     cfg = load("config")
     max_age_hours: float = cfg["gate"]["max_age_hours"]
-    targets = companies or COMPANIES
+    sources = load("sources")
+    targets = companies or sources.get("greenhouse") or COMPANIES
 
     all_jobs: list[Job] = []
 
