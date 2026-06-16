@@ -121,11 +121,12 @@ def append_jobs(jobs: list[Job], cfg: dict) -> int:
 
     try:
         ws = _worksheet(cfg)
-        # Find the last non-empty row so we write immediately after it,
-        # not at the physical end of the sheet (which may be row 2000+).
-        all_values = ws.get_all_values()
+        # Anchor on column A (DATE) — always populated for real data rows.
+        # Cheaper than get_all_values() and immune to ghost rows created by
+        # sheet formatting (borders, colours) that make empty rows look non-empty.
+        col_a = ws.col_values(1)
         last_row = max(
-            (i + 1 for i, row in enumerate(all_values) if any(c.strip() for c in row)),
+            (i + 1 for i, v in enumerate(col_a) if v.strip()),
             default=1,
         )
         next_row = last_row + 1
