@@ -6,6 +6,8 @@ An open-source, self-hosted job-search pipeline that **discovers**, **scores**, 
 discover → normalize → gate → dedupe → score → review → apply → sync → report
 ```
 
+![JobPilot pipeline](assets/jobpilot-pipeline.png)
+
 ---
 
 ## Why JobPilot?
