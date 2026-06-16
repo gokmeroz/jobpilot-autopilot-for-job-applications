@@ -1,9 +1,15 @@
 """
-Relocate.me job board API adapter.
+Relocate.me job board scraper.
 
-Public JSON API — no auth required.
-All jobs include relocation packages — direct signal for EU/UK relocation targets.
-API: https://relocate.me/api/v1/jobs
+Parses the public /international-jobs listing pages (static HTML — no JS required).
+For each job, fetches the detail page to extract LD+JSON structured data
+(title, company, location, salary, description, datePosted).
+
+apply_url is the relocate.me job page itself — the candidate logs in there
+(Google or LinkedIn OAuth) to reveal the actual employer apply link.
+
+Note: Relocate.me is a curated board with ~25–50 relocation-package jobs at a
+time. Jobs may be older than 48 h; the gate filters those out automatically.
 """
 from __future__ import annotations
 
@@ -20,21 +26,21 @@ from src.normalize import build_job_key, country_from_location, infer_remote
 
 log = logging.getLogger(__name__)
 
-_BASE = "https://relocate.me/api/v1/jobs"
-SOURCE = "relocateme"
-SOURCE_TIER = 1  # Tier 1 — relocation-specific, highest priority market signal
+_BASE    = "https://relocate.me"
+_LISTING = f"{_BASE}/international-jobs"
+SOURCE   = "relocateme"
+SOURCE_TIER = 1  # Tier 1 — every listing includes a relocation package
 
 _HEADERS = {
-    "User-Agent": "JobPilot/1.0 (+https://github.com/jobpilot)",
-    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0 (compatible; JobPilot/1.0; +https://github.com/jobpilot)",
+    "Accept":     "text/html,application/xhtml+xml",
 }
 
-_VISA_RE = re.compile(
-    r"\b(visa\s+sponsor|relocation\s+(support|assistance|package)|work\s+permit|"
-    r"we\s+sponsor|sponsorship)\b",
-    re.IGNORECASE,
-)
-_YOE_RE = re.compile(r"(\d+)\+?\s*years?\s+of\s+(professional\s+)?experience", re.IGNORECASE)
+_YOE_RE   = re.compile(r"(\d+)\+?\s*years?\s+of\s+(professional\s+)?experience", re.IGNORECASE)
+_TAG_RE   = re.compile(r"<[^>]+>")
+_JOB_LINK = re.compile(r'href="(/[a-z0-9-]+/[a-z0-9-]+/[a-z0-9-]+/[a-z0-9-]+-\d+)"')
+_LD_JSON  = re.compile(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', re.DOTALL)
+_SALARY_RE = re.compile(r"\$[\d,]+(?:\s*[-–]\s*\$[\d,]+)?|\d+[kK](?:\s*[-–]\s*\d+[kK])?", re.IGNORECASE)
 
 
 class _Stripper(HTMLParser):
@@ -55,160 +61,168 @@ def _strip_html(html: str) -> str:
     return re.sub(r"\s{2,}", " ", s.get_text())
 
 
-def _parse_salary(raw: dict) -> str | None:
-    sal = raw.get("salary") or {}
-    if not isinstance(sal, dict):
-        return None
-    lo = sal.get("from") or sal.get("min")
-    hi = sal.get("to") or sal.get("max")
-    currency = (sal.get("currency") or "EUR").upper()
-    if lo and hi:
-        return f"{currency} {int(lo):,}–{int(hi):,}/yr"
-    if lo:
-        return f"{currency} {int(lo):,}+/yr"
-    return None
-
-
-def _parse_location(raw: dict) -> tuple[str, str]:
-    """Return (display_string, ISO country code)."""
-    loc = raw.get("location") or {}
-    if isinstance(loc, dict):
-        city = (loc.get("city") or "").strip()
-        country_obj = loc.get("country") or {}
-        if isinstance(country_obj, dict):
-            country_name = (country_obj.get("title") or country_obj.get("name") or "").strip()
-            iso = (country_obj.get("iso_code") or country_obj.get("code") or "").strip().upper()
-        else:
-            country_name = str(country_obj).strip()
-            iso = ""
-        display = ", ".join(filter(None, [city, country_name]))
-        return display, iso or country_from_location(display)
-
-    if isinstance(loc, str) and loc:
-        return loc, country_from_location(loc)
-
-    # Flat country field as fallback
-    country_raw = raw.get("country") or ""
-    if country_raw:
-        return str(country_raw), country_from_location(str(country_raw))
-    return "", "REMOTE"
-
-
-def _parse_posted_at(raw: dict) -> datetime | None:
-    for field in ("published_at", "created_at", "date", "updated_at"):
-        val = raw.get(field)
-        if val:
-            try:
-                dt = datetime.fromisoformat(str(val))
-                return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-            except Exception:
-                pass
-    return None
-
-
-def _parse_job(raw: dict) -> Job | None:
+def _get_html(url: str) -> str | None:
     try:
-        title = (raw.get("title") or "").strip()
+        resp = requests.get(url, headers=_HEADERS, timeout=15)
+        resp.raise_for_status()
+        return resp.text
+    except Exception as exc:
+        log.warning("relocateme: GET %s failed: %s", url, exc)
+        return None
 
-        company_raw = raw.get("company") or {}
-        if isinstance(company_raw, dict):
-            company = (company_raw.get("title") or company_raw.get("name") or "").strip()
-        else:
-            company = str(company_raw).strip()
 
-        apply_url = (raw.get("apply_url") or raw.get("url") or raw.get("link") or "").strip()
+def _parse_listing_page(html: str) -> list[str]:
+    """Extract job detail paths from listing HTML."""
+    paths = _JOB_LINK.findall(html)
+    # Filter out non-job pages (guide pages, etc.)
+    return [p for p in dict.fromkeys(paths) if "/job-search" not in p]
 
-        if not title or not company or not apply_url:
+
+def _next_page_path(html: str) -> str | None:
+    """Return the href of the Next button, if present."""
+    m = re.search(r'href="(/international-jobs\?page=\d+)"[^>]*>(?:Next|›|»)', html)
+    return m.group(1) if m else None
+
+
+def _parse_detail(path: str) -> Job | None:
+    """Fetch detail page and extract LD+JSON JobPosting data."""
+    import json
+
+    url = f"{_BASE}{path}"
+    html = _get_html(url)
+    if not html:
+        return None
+
+    # Extract all LD+JSON blocks
+    for raw_block in _LD_JSON.findall(html):
+        clean = re.sub(r"\s+", " ", raw_block).strip()
+        try:
+            data = json.loads(clean)
+        except Exception:
+            continue
+
+        if data.get("@type") != "JobPosting":
+            continue
+
+        try:
+            # Title: strip "| Relocation Offered" suffix
+            title = re.sub(r"\s*[\|–]\s*Relocation.*$", "", data.get("title", "")).strip()
+            if not title:
+                return None
+
+            org   = data.get("hiringOrganization") or {}
+            company = (org.get("name") or "").strip()
+            if not company:
+                return None
+
+            loc_obj  = data.get("jobLocation") or {}
+            addr     = loc_obj.get("address") or {} if isinstance(loc_obj, dict) else {}
+            city     = (addr.get("addressLocality") or "").strip()
+            country_name = (addr.get("addressCountry") or "").strip()
+            country  = country_from_location(country_name or city)
+            location = ", ".join(filter(None, [city, country_name])) or None
+
+            description_raw = data.get("description") or ""
+            description = _strip_html(description_raw)
+
+            date_str = data.get("datePosted") or data.get("validFrom")
+            posted_at: datetime | None = None
+            if date_str:
+                try:
+                    dt = datetime.fromisoformat(str(date_str))
+                    posted_at = dt.replace(tzinfo=timezone.utc) if not dt.tzinfo else dt.astimezone(timezone.utc)
+                except Exception:
+                    pass
+
+            # Salary from description or baseSalary field
+            sal_obj = data.get("baseSalary") or {}
+            salary: str | None = None
+            if isinstance(sal_obj, dict):
+                val = sal_obj.get("value") or {}
+                if isinstance(val, dict):
+                    lo = val.get("minValue")
+                    hi = val.get("maxValue")
+                    currency = (sal_obj.get("currency") or "USD").upper()
+                    if lo and hi:
+                        salary = f"{currency} {int(lo):,}–{int(hi):,}/yr"
+                    elif lo:
+                        salary = f"{currency} {int(lo):,}+/yr"
+            if not salary:
+                m = _SALARY_RE.search(description[:500])
+                salary = m.group(0) if m else None
+
+            yoe_matches = _YOE_RE.findall(description)
+            yoe_max     = max(int(m[0]) for m in yoe_matches) if yoe_matches else None
+            remote      = infer_remote(location or "", description[:400])
+
+            return Job(
+                job_key           = build_job_key(company, title, country),
+                title             = title,
+                company           = company,
+                country           = country,
+                location          = location,
+                remote            = remote,
+                posted_at         = posted_at,
+                timestamp_trusted = posted_at is not None,
+                source            = SOURCE,
+                source_tier       = SOURCE_TIER,
+                ats               = None,
+                apply_url         = url,   # login-gated; candidate applies via relocate.me
+                salary            = salary,
+                language          = "EN",
+                description       = description,
+                yoe_max           = yoe_max,
+                visa_signal       = True,  # all relocate.me listings include relocation support
+            )
+        except Exception as exc:
+            log.warning("relocateme: parse error for %s: %s", path, exc)
             return None
 
-        description = _strip_html(raw.get("description") or raw.get("body") or "")
-        location_str, country = _parse_location(raw)
-        posted_at = _parse_posted_at(raw)
-        salary = _parse_salary(raw)
-
-        visa_signal = bool(raw.get("visa_support") or raw.get("visa_sponsorship"))
-        if not visa_signal:
-            visa_signal = bool(_VISA_RE.search(description))
-
-        yoe_matches = _YOE_RE.findall(description)
-        yoe_max = max(int(m[0]) for m in yoe_matches) if yoe_matches else None
-
-        job_type = (raw.get("type") or raw.get("job_type") or "").lower()
-        if "remote" in job_type:
-            remote = RemoteType.remote
-        elif location_str:
-            remote = infer_remote(location_str, description[:300])
-        else:
-            remote = RemoteType.onsite
-
-        return Job(
-            job_key           = build_job_key(company, title, country),
-            title             = title,
-            company           = company,
-            country           = country,
-            location          = location_str or None,
-            remote            = remote,
-            posted_at         = posted_at,
-            timestamp_trusted = posted_at is not None,
-            source            = SOURCE,
-            source_tier       = SOURCE_TIER,
-            ats               = None,
-            apply_url         = apply_url,
-            salary            = salary,
-            language          = "EN",
-            description       = description,
-            yoe_max           = yoe_max,
-            visa_signal       = True,  # every relocate.me listing includes relocation support
-        )
-    except Exception as exc:
-        log.warning("relocateme: failed to parse job '%s': %s", raw.get("title"), exc)
-        return None
+    return None
 
 
-def _fetch_page(page: int, per_page: int = 20) -> tuple[list[dict], int]:
-    try:
-        resp = requests.get(
-            _BASE,
-            headers=_HEADERS,
-            params={"page": page, "per_page": per_page},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-    except Exception as exc:
-        log.error("relocateme: page %d fetch failed: %s", page, exc)
-        return [], 1
+def fetch(max_pages: int = 3, detail_delay: float = 0.4) -> list[Job]:
+    """
+    Scrape relocation jobs from Relocate.me.
 
-    raw = payload.get("data") or []
-    meta = payload.get("meta") or {}
-    last_page = int(meta.get("last_page") or meta.get("total_pages") or 1)
-    return raw, last_page
+    Fetches the listing pages (static HTML), then visits each detail page
+    to extract structured data via LD+JSON. All jobs include relocation packages.
 
-
-def fetch(max_pages: int = 5, request_delay: float = 0.5) -> list[Job]:
-    """Fetch relocation jobs from Relocate.me (all include relocation packages)."""
-    seen: set[str] = set()
+    Args:
+        max_pages:    Maximum listing pages to scan (each has ~20–25 jobs).
+        detail_delay: Seconds between detail page requests (polite scraping).
+    """
+    seen:     set[str] = set()
     all_jobs: list[Job] = []
-    page = 1
+    next_path: str | None = "/international-jobs"
+    pages_fetched = 0
 
-    while page <= max_pages:
-        raw_jobs, last_page = _fetch_page(page)
-        if not raw_jobs:
+    while next_path and pages_fetched < max_pages:
+        url  = f"{_BASE}{next_path}" if not next_path.startswith("http") else next_path
+        html = _get_html(url)
+        if not html:
             break
 
-        for raw in raw_jobs:
-            job = _parse_job(raw)
-            if job and job.job_key not in seen:
-                seen.add(job.job_key)
+        paths = _parse_listing_page(html)
+        log.info("relocateme: listing page %d — %d job paths", pages_fetched + 1, len(paths))
+
+        for path in paths:
+            if path in seen:
+                continue
+            seen.add(path)
+
+            job = _parse_detail(path)
+            if job:
                 all_jobs.append(job)
+                log.debug("relocateme: parsed '%s' @ %s", job.title, job.company)
 
-        log.info("relocateme: page %d/%d → %d jobs so far", page, last_page, len(all_jobs))
+            if detail_delay > 0:
+                time.sleep(detail_delay)
 
-        if page >= last_page:
-            break
-        page += 1
-        if request_delay > 0:
-            time.sleep(request_delay)
+        next_path = _next_page_path(html)
+        pages_fetched += 1
+        if next_path:
+            time.sleep(1.0)  # pause between listing pages
 
-    log.info("relocateme: %d unique jobs total", len(all_jobs))
+    log.info("relocateme: %d jobs total across %d listing page(s)", len(all_jobs), pages_fetched)
     return all_jobs

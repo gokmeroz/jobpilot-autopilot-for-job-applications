@@ -7,14 +7,77 @@ from src.models import RemoteType
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 _COUNTRY_HINTS: dict[str, str] = {
+    # Germany
     "germany": "DE", "berlin": "DE", "munich": "DE", "münchen": "DE",
     "hamburg": "DE", "frankfurt": "DE", "cologne": "DE", "köln": "DE",
+    "düsseldorf": "DE", "stuttgart": "DE", "dusseldorf": "DE",
+    # Netherlands
     "netherlands": "NL", "amsterdam": "NL", "rotterdam": "NL", "eindhoven": "NL",
-    "ireland": "IE", "dublin": "IE",
+    "utrecht": "NL", "the hague": "NL", "hague": "NL", "delft": "NL",
+    # Ireland
+    "ireland": "IE", "dublin": "IE", "cork": "IE", "galway": "IE",
+    # United Kingdom
     "united kingdom": "GB", "uk": "GB", "england": "GB", "london": "GB",
-    "manchester": "GB", "edinburgh": "GB",
+    "manchester": "GB", "edinburgh": "GB", "birmingham": "GB", "leeds": "GB",
+    "glasgow": "GB", "bristol": "GB", "cambridge": "GB", "oxford": "GB",
+    # Turkey
     "turkey": "TR", "türkiye": "TR", "istanbul": "TR", "ankara": "TR",
+    "izmir": "TR",
+    # United States
     "united states": "US", "usa": "US", "new york": "US", "san francisco": "US",
+    "seattle": "US", "boston": "US", "austin": "US", "chicago": "US",
+    "los angeles": "US", "denver": "US", "atlanta": "US", "miami": "US",
+    # Portugal
+    "portugal": "PT", "lisbon": "PT", "porto": "PT", "braga": "PT",
+    # Spain
+    "spain": "ES", "barcelona": "ES", "madrid": "ES", "valencia": "ES",
+    "seville": "ES", "bilbao": "ES", "san sebastian": "ES", "málaga": "ES",
+    "malaga": "ES",
+    # France
+    "france": "FR", "paris": "FR", "lyon": "FR", "marseille": "FR",
+    "bordeaux": "FR", "toulouse": "FR", "nantes": "FR",
+    # Sweden
+    "sweden": "SE", "stockholm": "SE", "gothenburg": "SE", "malmö": "SE",
+    "malmo": "SE",
+    # Norway
+    "norway": "NO", "oslo": "NO", "bergen": "NO",
+    # Denmark
+    "denmark": "DK", "copenhagen": "DK",
+    # Finland
+    "finland": "FI", "helsinki": "FI",
+    # Switzerland
+    "switzerland": "CH", "zurich": "CH", "zürich": "CH", "geneva": "CH",
+    # Austria
+    "austria": "AT", "vienna": "AT", "wien": "AT",
+    # Belgium
+    "belgium": "BE", "brussels": "BE", "bruxelles": "BE", "antwerp": "BE",
+    "ghent": "BE",
+    # Poland
+    "poland": "PL", "warsaw": "PL", "kraków": "PL", "krakow": "PL",
+    "wrocław": "PL", "wroclaw": "PL",
+    # Czech Republic
+    "czech": "CZ", "czechia": "CZ", "prague": "CZ", "brno": "CZ",
+    # Romania
+    "romania": "RO", "bucharest": "RO", "cluj": "RO",
+    # Hungary
+    "hungary": "HU", "budapest": "HU",
+    # Cyprus
+    "cyprus": "CY", "nicosia": "CY", "limassol": "CY",
+    # Estonia
+    "estonia": "EE", "tallinn": "EE",
+    # Japan
+    "japan": "JP", "tokyo": "JP", "osaka": "JP", "kyoto": "JP",
+    # Singapore
+    "singapore": "SG",
+    # Australia
+    "australia": "AU", "sydney": "AU", "melbourne": "AU", "brisbane": "AU",
+    # Canada
+    "canada": "CA", "toronto": "CA", "vancouver": "CA", "montreal": "CA",
+    # India
+    "india": "IN", "bangalore": "IN", "bengaluru": "IN", "mumbai": "IN",
+    "hyderabad": "IN", "pune": "IN",
+    # UAE
+    "uae": "AE", "dubai": "AE", "abu dhabi": "AE",
 }
 
 _REMOTE_RE = re.compile(r"\b(remote|work from home|wfh|anywhere)\b", re.I)
