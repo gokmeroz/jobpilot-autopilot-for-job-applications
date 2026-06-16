@@ -49,6 +49,12 @@ test-ashby: ## Test Ashby filler — opens browser, fills form, dry_run=true
 	$(PYTHON) test_apply.py ashby
 
 # ── Code quality ──────────────────────────────────────────────────────────────
+test: ## Run the test suite
+	.venv/bin/pytest tests/ -v
+
+test-fast: ## Run the test suite without verbose output
+	.venv/bin/pytest tests/
+
 lint: ## Run ruff linter over src/ and main.py
 	.venv/bin/ruff check src/ main.py test_apply.py
 
