@@ -29,7 +29,15 @@ def _worksheet(cfg: dict) -> gspread.Worksheet:
     sheet_id = env("SHEET_ID", required=True)
     gc = _client()
     sh = gc.open_by_key(sheet_id)
-    return sh.worksheet(cfg["sheet"]["worksheet"])
+    name = cfg["sheet"]["worksheet"]
+    try:
+        return sh.worksheet(name)
+    except gspread.exceptions.WorksheetNotFound:
+        logger.info("sheet: worksheet '%s' not found — creating it", name)
+        ws = sh.add_worksheet(title=name, rows=1000, cols=len(cfg["sheet"]["columns"]))
+        ws.append_row(cfg["sheet"]["columns"], value_input_option="USER_ENTERED")
+        logger.info("sheet: created worksheet '%s' with headers", name)
+        return ws
 
 
 def _invert_country_display(cfg: dict) -> dict[str, str]:
