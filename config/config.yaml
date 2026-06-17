@@ -18,7 +18,7 @@ gate:
 score:
   threshold: 6.5
   model: claude-haiku-4-5-20251001  # fast + cheap for scoring; swap to claude-sonnet-4-6 for higher quality
-  max_llm_calls_per_run: 120 # cost guard; prescore must cut volume below this
+  max_llm_calls_per_run: 200 # cost guard; prescore must cut volume below this
 
 apply:
   dry_run: true  # true = fill + screenshot, never click submit

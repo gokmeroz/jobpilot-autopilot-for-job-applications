@@ -122,9 +122,15 @@ def score_batch(jobs: list[Job], client: Anthropic | None = None) -> list[Job]:
     results: list[Job] = []
     calls   = 0
 
+    warned = False
     for job in jobs:
         if calls >= max_calls:
-            log.warning("hit max_llm_calls_per_run=%d, stopping early", max_calls)
+            if not warned:
+                log.warning(
+                    "hit max_llm_calls_per_run=%d — %d job(s) left unscored",
+                    max_calls, len(jobs) - calls,
+                )
+                warned = True
             results.append(job)
             continue
         try:
