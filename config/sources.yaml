@@ -33,6 +33,13 @@ greenhouse:
   N26:            n26
   GoCardless:     gocardless
   Remote.com:     remote
+  # Tier 3 — junior-friendly startups & scale-ups
+  Intercom:       intercom
+  Algolia:        algolia
+  Mixpanel:       mixpanel
+  GetYourGuide:   getyourguide
+  Cleo:           cleo
+  Anthropic:      anthropic
 
 # ---------------------------------------------------------------------------
 # Ashby  (handle = slug in https://jobs.ashbyhq.com/<handle>)
@@ -60,6 +67,17 @@ ashby:
   Airtable:       airtable
   Loom:           loom
   Vapi:           vapi
+  # Junior-friendly startups (verified on posting-api)
+  Railway:        railway
+  Sanity:         sanity
+  Langfuse:       langfuse
+  Modal:          modal
+  Checkout.com:   checkout.com
+  Replit:         replit
+  Airbyte:        airbyte
+  Sentry:         sentry
+  Cohere:         cohere
+  Notion:         notion
 
 # ---------------------------------------------------------------------------
 # Lever  (slug = https://api.lever.co/v0/postings/<slug>)
@@ -67,3 +85,6 @@ ashby:
 # ---------------------------------------------------------------------------
 lever:
   Spotify:        spotify
+  Cloudinary:     cloudinary
+  Intercom:       intercom
+  Figma:          figma

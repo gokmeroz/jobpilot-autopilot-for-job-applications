@@ -86,7 +86,7 @@ def append_jobs(jobs: list[Job], cfg: dict) -> int:
             return "Remote"
         if job.remote == RemoteType.hybrid:
             return "Hybrid"
-        return "On-site"
+        return "On-Site"
 
     def _stage(job: Job) -> str:
         if job.status == Status.applied:

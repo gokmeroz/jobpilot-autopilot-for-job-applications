@@ -254,6 +254,88 @@ def _interactive_review(result) -> None:
             print(f"  Sheet sync failed: {exc}\n")
 
 
+def _parse_review_file(path: str):
+    """Reconstruct Job objects from a manual_queue review markdown file."""
+    import re as _re
+    from pathlib import Path as _Path
+    from urllib.parse import urlparse as _urlparse
+
+    from src.config import load as _load_cfg
+    from src.models import Job, RemoteType, Route, Score, Status
+    from src.normalize import build_job_key
+
+    _ATS_DOMAINS: dict[str, str] = {
+        "greenhouse.io": "greenhouse",
+        "lever.co": "lever",
+        "ashbyhq.com": "ashby",
+        "workable.com": "workable",
+        "smartrecruiters.com": "smartrecruiters",
+    }
+    _KNOWN_ATS = set(_ATS_DOMAINS.values())
+    _REMOTE_MAP: dict[str, RemoteType] = {
+        "remote": RemoteType.remote,
+        "hybrid": RemoteType.hybrid,
+        "onsite": RemoteType.onsite,
+        "unknown": RemoteType.unknown,
+    }
+
+    def _ats(url: str) -> str | None:
+        try:
+            host = _urlparse(url).netloc.lower()
+            for domain, name in _ATS_DOMAINS.items():
+                if domain in host:
+                    return name
+        except Exception:
+            pass
+        return None
+
+    p = _Path(path)
+    run_id = p.stem.replace("_review", "")
+    cfg = _load_cfg("config")
+    cover_letter = cfg["apply"]["cover_letter_short"]
+
+    jobs: list[Job] = []
+    for line in p.read_text().splitlines():
+        # Match: | N | title | company | country | type | salary | score | url |
+        m = _re.match(
+            r"\|\s*\d+\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([\d.]+)\s*\|\s*(.+?)\s*\|",
+            line,
+        )
+        if not m:
+            continue
+        title, company, country, remote_str, salary_raw, score_str, apply_url = m.groups()
+        if title == "Role":
+            continue
+        salary = salary_raw.strip() if salary_raw.strip() not in ("—", "-", "") else None
+        remote_type = _REMOTE_MAP.get(remote_str.strip().lower(), RemoteType.unknown)
+        score_total = float(score_str)
+        detected_ats = _ats(apply_url.strip())
+        route = Route.auto if detected_ats in _KNOWN_ATS else Route.manual
+        jobs.append(Job(
+            job_key=build_job_key(company, title, country),
+            title=title,
+            company=company,
+            country=country,
+            location=country,
+            remote=remote_type,
+            source="replay",
+            source_tier=2,
+            ats=detected_ats,
+            apply_url=apply_url.strip(),
+            salary=salary,
+            language="EN",
+            description="",
+            visa_signal=False,
+            score=Score(role=score_total, stack=score_total, seniority=score_total,
+                        visa=score_total, culture=score_total, total=score_total,
+                        rationale="Loaded from review file"),
+            status=Status.scored,
+            route=route,
+            cover_letter=cover_letter,
+        ))
+    return run_id, jobs
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="jobpilot",
@@ -276,6 +358,12 @@ def _parse_args() -> argparse.Namespace:
         help="Override the auto-generated run ID",
     )
     parser.add_argument(
+        "--resume-review",
+        metavar="PATH",
+        default=None,
+        help="Replay a previous review file: parse jobs from it and go straight to apply",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable debug logging",
@@ -286,6 +374,17 @@ def _parse_args() -> argparse.Namespace:
 def main() -> int:
     args = _parse_args()
     _setup_logging(args.verbose)
+
+    # Replay a previous review file without re-running discovery/scoring
+    if args.resume_review:
+        from src.pipeline import PipelineResult
+        run_id, jobs = _parse_review_file(args.resume_review)
+        print(f"Replaying review file: {args.resume_review}")
+        print(f"  Run ID : {run_id}")
+        print(f"  Jobs   : {len(jobs)}")
+        result = PipelineResult(run_id=run_id, jobs_for_review=jobs)
+        _interactive_review(result)
+        return 0
 
     sources = _ALL_SOURCES if args.source == "all" else [args.source]
 

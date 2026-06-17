@@ -21,7 +21,7 @@ score:
   max_llm_calls_per_run: 200 # cost guard; prescore must cut volume below this
 
 apply:
-  dry_run: true  # true = fill + screenshot, never click submit
+  dry_run: false  # true = fill + screenshot, never click submit
   headless: true
   max_attempts: 2
   resume_file: assets/resume/resume.pdf
