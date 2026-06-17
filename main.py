@@ -134,18 +134,65 @@ def _dry_run(jobs: list) -> None:
             print(f"  [{age:>5}] {job.title} @ {job.company} ({job.country})")
 
 
-def _print_review_table(jobs: list) -> None:
-    W = 108
+W = 108  # table width constant
+
+
+def _print_review_table(jobs: list, offset: int = 0) -> None:
     print(f"\n{'─' * W}")
-    print(f"  {'#':<4} {'Score':<6} {'Role':<36} {'Company':<22} {'Ctry':<6} {'Type':<10} Salary")
+    print(f"  {'#':<4} {'Score':<6} {'ATS':<14} {'Role':<34} {'Company':<20} {'Ctry':<6} Salary")
     print(f"{'─' * W}")
-    for i, job in enumerate(jobs, 1):
+    for i, job in enumerate(jobs, offset + 1):
         score   = f"{job.score.total:.1f}" if job.score else "—"
-        title   = (job.title[:33] + "…") if len(job.title) > 34 else job.title
-        company = (job.company[:19] + "…") if len(job.company) > 20 else job.company
+        ats     = (job.ats or "—")[:13]
+        title   = (job.title[:31] + "…") if len(job.title) > 32 else job.title
+        company = (job.company[:17] + "…") if len(job.company) > 18 else job.company
         salary  = job.salary or "—"
-        print(f"  {i:<4} {score:<6} {title:<36} {company:<22} {job.country:<6} {job.remote.value:<10} {salary}")
+        print(f"  {i:<4} {score:<6} {ats:<14} {title:<34} {company:<20} {job.country:<6} {salary}")
     print(f"{'─' * W}")
+
+
+def _ask_remove(jobs: list, offset: int = 0) -> list:
+    """Prompt user to remove jobs by number. Returns the kept list."""
+    print("  Enter IDs to REMOVE (comma-separated), Enter / 'none' = keep all, 'all' = skip all:")
+    try:
+        raw = input("\n  > ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\nAborted.")
+        return []
+
+    if raw == "all":
+        return []
+    if raw in ("", "none", "null"):
+        return list(jobs)
+    try:
+        remove_ids = {int(x.strip()) - offset for x in raw.split(",") if x.strip()}
+        kept = [j for i, j in enumerate(jobs, 1) if i not in remove_ids]
+        removed = len(jobs) - len(kept)
+        if removed:
+            print(f"  Removed {removed} job(s).")
+        return kept
+    except ValueError:
+        print("  Could not parse — keeping all.")
+        return list(jobs)
+
+
+def _sync_sheet(applied: list, queued: list) -> None:
+    from src.config import load as _load_cfg
+    from src.models import Status as _Status
+    from src.sheet import append_jobs as _append_jobs
+
+    sheet_jobs = (
+        [j.model_copy(update={"status": _Status.applied}) for j in applied] +
+        [j.model_copy(update={"status": _Status.queued})  for j in queued]
+    )
+    if not sheet_jobs:
+        return
+    try:
+        n = _append_jobs(sheet_jobs, _load_cfg("config"))
+        if n:
+            print(f"\n  Sheet updated — {n} row(s) added.\n")
+    except Exception as exc:
+        print(f"\n  Sheet sync failed: {exc}\n")
 
 
 def _interactive_review(result) -> None:
@@ -153,105 +200,87 @@ def _interactive_review(result) -> None:
     from src.apply.runner import apply_batch
     from src.models import Route, Status
 
-    jobs = result.jobs_for_review
-    if not jobs:
+    all_jobs = result.jobs_for_review
+    if not all_jobs:
         print("\nNo jobs above threshold — nothing to review.")
         return
 
-    _print_review_table(jobs)
+    auto_candidates = [j for j in all_jobs if j.route == Route.auto]
+    manual_candidates = [j for j in all_jobs if j.route != Route.auto]
 
-    print(f"\n  {len(jobs)} job(s) scored above threshold.")
-    print("  Enter IDs to REMOVE (comma-separated), or press Enter / type 'none' to apply all:")
-    print("  Example: 2,5,7   |   none = keep all   |   all = remove all")
+    applied:      list = []
+    needs_manual: list = []   # auto-apply failures fall back here
+    queued:       list = []   # user-approved manual jobs
 
-    try:
-        raw = input("\n  > ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print("\nAborted.")
-        return
-
-    if raw in ("", "none", "null", "nan"):
-        to_apply = list(jobs)
-    elif raw == "all":
-        print("Removed all — nothing to apply.")
-        return
-    else:
-        try:
-            remove_ids = {int(x.strip()) for x in raw.split(",") if x.strip()}
-            to_apply = [j for i, j in enumerate(jobs, 1) if i not in remove_ids]
-            removed = len(jobs) - len(to_apply)
-            if removed:
-                print(f"  Removed {removed} job(s).")
-        except ValueError:
-            print("  Could not parse input — keeping all jobs.")
-            to_apply = list(jobs)
-
-    if not to_apply:
-        print("\nNo jobs remaining — nothing to apply.")
-        return
-
-    auto_jobs   = [j for j in to_apply if j.route == Route.auto]
-    manual_jobs = [j for j in to_apply if j.route != Route.auto]
-
-    # ── Auto-apply ────────────────────────────────────────────────────────────
-    applied: list = []
-    failed_auto: list = []
-
-    if auto_jobs:
-        print(f"\n  Auto-applying to {len(auto_jobs)} job(s)…")
-        apply_results = apply_batch(auto_jobs, result.run_id)
-        result_by_key = {r.job_key: r for r in apply_results}
-
-        for job in auto_jobs:
-            ar = result_by_key.get(job.job_key)
-            if ar:
-                ledger.mark_status(job, ar.status, result.run_id)
-                if ar.status == Status.applied:
-                    applied.append(job)
-                else:
-                    failed_auto.append(job)
-                    manual_jobs.append(job)
-
-    # ── Results ───────────────────────────────────────────────────────────────
-    W = 108
+    # ════════════════════════════════════════════════════════════════════════
+    # STAGE 1 — AUTO-APPLY
+    # ════════════════════════════════════════════════════════════════════════
     print(f"\n{'═' * W}")
+    if auto_candidates:
+        print(f"\n  ── STAGE 1: AUTO-APPLY ({len(auto_candidates)} job(s)) ──")
+        print("  These will be submitted automatically via ATS form filler.")
+        _print_review_table(auto_candidates)
+        to_auto = _ask_remove(auto_candidates)
 
-    if applied:
-        print(f"\n  ✓ Applied ({len(applied)})")
-        for job in applied:
-            print(f"    • {job.title} @ {job.company} ({job.country})")
-            print(f"      {job.apply_url}")
+        if to_auto:
+            print(f"\n  Auto-applying to {len(to_auto)} job(s)…")
+            apply_results = apply_batch(to_auto, result.run_id)
+            result_by_key = {r.job_key: r for r in apply_results}
 
-    if manual_jobs:
-        print(f"\n  ✎ Manual application required ({len(manual_jobs)})")
-        print(f"  {'#':<4} {'Role':<36} {'Company':<22} {'Ctry':<6} {'Type':<10} Link")
-        print(f"  {'─' * 100}")
-        for i, job in enumerate(manual_jobs, 1):
-            title   = (job.title[:33] + "…") if len(job.title) > 34 else job.title
-            company = (job.company[:19] + "…") if len(job.company) > 20 else job.company
-            print(f"  {i:<4} {title:<36} {company:<22} {job.country:<6} {job.remote.value:<10} {job.apply_url}")
+            for job in to_auto:
+                ar = result_by_key.get(job.job_key)
+                if ar:
+                    ledger.mark_status(job, ar.status, result.run_id)
+                    if ar.status == Status.applied:
+                        applied.append(job)
+                    else:
+                        needs_manual.append(job)
 
-    if not applied and not manual_jobs:
-        print("\n  Nothing was applied.")
+        # Print auto-apply results
+        if applied:
+            print(f"\n  ✓ Auto-applied ({len(applied)}):")
+            for job in applied:
+                print(f"    • {job.title} @ {job.company} ({job.country})")
+                print(f"      {job.apply_url}")
+
+        if needs_manual:
+            print(f"\n  ✗ Auto-apply failed — moved to manual ({len(needs_manual)}):")
+            for job in needs_manual:
+                reason = getattr(job, "fail_reason", "") or ""
+                print(f"    • {job.title} @ {job.company} — {reason[:80]}")
+    else:
+        print(f"\n  ── STAGE 1: AUTO-APPLY ──")
+        print("  No auto-apply jobs this run. (Need Greenhouse/Ashby/Lever/Workable URL + score > 6.5)")
+
+    _sync_sheet(applied, [])
+
+    # ════════════════════════════════════════════════════════════════════════
+    # STAGE 2 — MANUAL
+    # ════════════════════════════════════════════════════════════════════════
+    manual_all = manual_candidates + needs_manual
+    print(f"\n{'═' * W}")
+    if manual_all:
+        print(f"\n  ── STAGE 2: MANUAL APPLICATION ({len(manual_all)} job(s)) ──")
+        print("  Review the list. Remove any you don't want added to the sheet.")
+        _print_review_table(manual_all)
+        to_queue = _ask_remove(manual_all)
+
+        if to_queue:
+            queued = to_queue
+            print(f"\n  Queued {len(queued)} job(s) for manual application:")
+            for i, job in enumerate(queued, 1):
+                title   = (job.title[:33] + "…") if len(job.title) > 34 else job.title
+                company = (job.company[:19] + "…") if len(job.company) > 20 else job.company
+                print(f"  {i:<3} {title:<35} {company:<21} {job.country}  {job.apply_url}")
+        else:
+            print("  No manual jobs queued.")
+    else:
+        print(f"\n  ── STAGE 2: MANUAL APPLICATION ──")
+        print("  No manual jobs this run.")
 
     print(f"\n{'═' * W}\n")
 
-    # ── Sheet sync ────────────────────────────────────────────────────────────
-    from src.config import load as _load_cfg
-    from src.models import Status as _Status
-    from src.sheet import append_jobs as _append_jobs
-
-    sheet_jobs = (
-        [j.model_copy(update={"status": _Status.applied}) for j in applied] +
-        [j.model_copy(update={"status": _Status.queued})  for j in manual_jobs]
-    )
-    if sheet_jobs:
-        try:
-            n = _append_jobs(sheet_jobs, _load_cfg("config"))
-            if n:
-                print(f"  Sheet updated — {n} row(s) added.\n")
-        except Exception as exc:
-            print(f"  Sheet sync failed: {exc}\n")
+    _sync_sheet([], queued)
 
 
 def _parse_review_file(path: str):
@@ -296,7 +325,9 @@ def _parse_review_file(path: str):
 
     jobs: list[Job] = []
     for line in p.read_text().splitlines():
-        # Match: | N | title | company | country | type | salary | score | url |
+        # New format: | N | score | ats | title | company | country | salary | (no url in review file)
+        # Old format: | N | title | company | country | type | salary | score | url |
+        # Try old format first (review .md files have the url)
         m = _re.match(
             r"\|\s*\d+\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([\d.]+)\s*\|\s*(.+?)\s*\|",
             line,
@@ -304,7 +335,7 @@ def _parse_review_file(path: str):
         if not m:
             continue
         title, company, country, remote_str, salary_raw, score_str, apply_url = m.groups()
-        if title == "Role":
+        if title in ("Role", "#", "Score"):
             continue
         salary = salary_raw.strip() if salary_raw.strip() not in ("—", "-", "") else None
         remote_type = _REMOTE_MAP.get(remote_str.strip().lower(), RemoteType.unknown)

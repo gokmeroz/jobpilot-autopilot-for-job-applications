@@ -25,6 +25,7 @@ from src.config import ROOT, load
 from src.models import Job, Route, Status
 from src.score import score_batch
 from src.sheet import append_jobs
+from src.resolve import resolve_apply_urls
 
 log = logging.getLogger(__name__)
 
@@ -184,6 +185,28 @@ def _write_report(result: PipelineResult, cfg: dict) -> Path:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+def _prefer_ats_within_batch(jobs: list[Job]) -> list[Job]:
+    """
+    Within a single discovery batch, for the same job_key keep whichever version
+    has a recognised ATS URL (Greenhouse, Ashby, Lever, etc.).  This prevents a
+    LinkedIn URL from shadowing an ATS URL when both adapters return the same job.
+    """
+    best: dict[str, Job] = {}
+    for job in jobs:
+        key = job.job_key
+        if key not in best:
+            best[key] = job
+        else:
+            existing = best[key]
+            if job.ats is not None and existing.ats is None:
+                best[key] = job  # upgrade to ATS version
+    kept   = len(best)
+    merged = len(jobs) - kept
+    if merged:
+        log.info("within-batch dedup: preferred ATS URL for %d job(s)", merged)
+    return list(best.values())
+
+
 def _make_run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
@@ -210,6 +233,9 @@ def run(jobs: list[Job], *, run_id: str | None = None) -> PipelineResult:
     passed, gated = gate.run(jobs)
     result.gated_out = len(gated)
 
+    # 2b. Within-batch dedup: for same job_key prefer ATS URL over LinkedIn URL
+    passed = _prefer_ats_within_batch(passed)
+
     # 3. Dedupe against ledger
     new_jobs, dupes = ledger.filter_new(passed)
     result.duplicates_skipped = len(dupes)
@@ -227,6 +253,9 @@ def run(jobs: list[Job], *, run_id: str | None = None) -> PipelineResult:
     # 5. Filter above threshold
     above = [j for j in scored_jobs if j.score and j.score.total >= threshold]
     result.above_threshold = len(above)
+
+    # 5b. Resolve external apply URLs for above-threshold LinkedIn jobs
+    above = resolve_apply_urls(above)
 
     # 6. Plan (assign cover letter + route)
     planned = [_assign_plan(j, cfg) for j in above]
