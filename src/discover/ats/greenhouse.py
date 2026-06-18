@@ -166,7 +166,7 @@ def _parse_job(raw: dict, company: str) -> Job | None:
             location         = location or None,
             remote           = remote_type,
             posted_at        = posted_at,
-            timestamp_trusted= posted_at is not None,
+            timestamp_trusted= False,   # ATS boards show currently-open jobs; post date ≠ expiry
             source           = SOURCE,
             source_tier      = SOURCE_TIER,
             ats              = "greenhouse",
@@ -232,8 +232,6 @@ def fetch(
     Returns:
         All jobs combined, unfiltered (gate.run handles age/seniority/language).
     """
-    cfg = load("config")
-    max_age_hours: float = cfg["gate"]["max_age_hours"]
     sources = load("sources")
     targets = companies or sources.get("greenhouse") or COMPANIES
 
@@ -241,19 +239,7 @@ def fetch(
 
     for i, (company, token) in enumerate(targets.items()):
         jobs = _fetch_company(company, token)
-
-        # Age-filter here too — avoids scoring very old postings from quiet boards
-        fresh = [
-            j for j in jobs
-            if not j.timestamp_trusted
-            or j.age_hours() is None
-            or (j.age_hours() or 0) <= max_age_hours
-        ]
-        stale = len(jobs) - len(fresh)
-        if stale:
-            log.debug("greenhouse: dropped %d stale jobs from %s", stale, company)
-
-        all_jobs.extend(fresh)
+        all_jobs.extend(jobs)
 
         if i < len(targets) - 1 and request_delay > 0:
             time.sleep(request_delay)

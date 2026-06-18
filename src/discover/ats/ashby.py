@@ -103,7 +103,7 @@ def _parse_job(raw: dict, company: str) -> Job | None:
             location          = location_name or None,
             remote            = remote_type,
             posted_at         = posted_at,
-            timestamp_trusted = posted_at is not None,
+            timestamp_trusted = False,   # ATS boards show currently-open jobs; post date ≠ expiry
             source            = SOURCE,
             source_tier       = SOURCE_TIER,
             ats               = "ashby",
@@ -144,8 +144,6 @@ def fetch(
     request_delay: float = REQUEST_DELAY,
 ) -> list[Job]:
     """Fetch open jobs from all target companies on Ashby."""
-    cfg = load("config")
-    max_age_hours: float = cfg["gate"]["max_age_hours"]
     sources = load("sources")
     targets = companies or sources.get("ashby") or COMPANIES
 
@@ -153,17 +151,7 @@ def fetch(
 
     for i, (company, handle) in enumerate(targets.items()):
         jobs = _fetch_company(company, handle)
-
-        fresh = [
-            j for j in jobs
-            if not j.timestamp_trusted
-            or j.age_hours() is None
-            or (j.age_hours() or 0) <= max_age_hours
-        ]
-        if len(jobs) - len(fresh):
-            log.debug("ashby: dropped %d stale jobs from %s", len(jobs) - len(fresh), company)
-
-        all_jobs.extend(fresh)
+        all_jobs.extend(jobs)
 
         if i < len(targets) - 1 and request_delay > 0:
             time.sleep(request_delay)
