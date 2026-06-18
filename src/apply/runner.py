@@ -20,6 +20,34 @@ from src.models import Job, Status
 
 log = logging.getLogger(__name__)
 
+_SUCCESS_URL_HINTS = ("confirm", "thank", "success", "submitted", "complete", "thanks", "/done")
+_SUCCESS_BODY_HINTS = (
+    "thank you",
+    "application received",
+    "successfully submitted",
+    "application submitted",
+    "we'll be in touch",
+    "application has been submitted",
+    "we received your application",
+)
+
+
+def _is_submission_successful(page, original_url: str) -> bool:
+    """Return True only when there is positive evidence the form was accepted."""
+    current = page.url
+    if current != original_url:
+        curr_lower = current.lower()
+        if any(h in curr_lower for h in _SUCCESS_URL_HINTS):
+            return True
+    try:
+        body = page.locator("body").inner_text(timeout=3_000).lower()
+        if any(h in body for h in _SUCCESS_BODY_HINTS):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 _FILLERS: dict[str, type[BaseFormFiller]] = {
     "greenhouse":     GreenhouseForm,
     "lever":          LeverForm,
@@ -125,9 +153,22 @@ def _run_browser(
             filler.screenshot("02_filled", evidence)
 
             if not dry_run:
-                # Submit happens inside fill_form → screenshot after navigation
+                # Submit happens inside fill_form → wait then verify
                 page.wait_for_load_state("networkidle", timeout=15_000)
                 filler.screenshot("03_submitted", evidence)
+
+                if not _is_submission_successful(page, job.apply_url):
+                    log.warning(
+                        "submission failed (no confirmation) — %s @ %s",
+                        job.title, job.company,
+                    )
+                    return ApplicationResult(
+                        job_key=job.job_key,
+                        status=Status.queued,
+                        evidence_dir=evidence,
+                        reason="NEEDS_USER_INPUT: form submitted but no confirmation detected — check evidence screenshots",
+                    )
+
                 log.info("applied → %s @ %s", job.title, job.company)
                 return ApplicationResult(
                     job_key=job.job_key,

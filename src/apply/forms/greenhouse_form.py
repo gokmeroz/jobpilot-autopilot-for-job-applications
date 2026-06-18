@@ -67,6 +67,23 @@ def _llm_answer_question(label: str, candidate, job) -> str:
         return ""
 
 
+def _fill_or_select(el, tag: str, text_value: str, select_opts: list[str]) -> bool:
+    """Fill a text input with text_value, or pick a select option from select_opts."""
+    if tag == "select":
+        return _try_select_fn(el, *select_opts)
+    return _safe_fill(el, text_value)
+
+
+def _try_select_fn(el, *opts: str) -> bool:
+    for opt in opts:
+        try:
+            el.select_option(label=opt)
+            return True
+        except Exception:
+            pass
+    return False
+
+
 def _select_react_combobox(el, page, he_pattern: str) -> bool:
     """Click a React Select combobox and pick the first option matching he_pattern."""
     try:
@@ -90,13 +107,7 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
     el_type = (el.get_attribute("type") or "text").lower()
 
     def _try_select(*opts: str) -> bool:
-        for opt in opts:
-            try:
-                el.select_option(label=opt)
-                return True
-            except Exception:
-                pass
-        return False
+        return _try_select_fn(el, *opts)
 
     # --- URL fields ---
     if re.search(r"linkedin", ll):
@@ -110,7 +121,8 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
 
     # --- Factual lookups ---
     if re.search(r"years?.*(professional|work|coding|programming|software|dev)|how many years", ll):
-        return _safe_fill(el, candidate.yoe)
+        return _fill_or_select(el, tag, str(candidate.yoe),
+                               [str(candidate.yoe), "0", "1", "Less than 1", "Less than 2", "0-1"])
     if re.search(r"how did you hear|referred by|referral source|where did you (find|learn|hear)", ll):
         if tag == "select":
             return _try_select("Job board", "LinkedIn", "Online Job Board", "Other")
@@ -124,7 +136,9 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
             return _try_select(candidate.salary_for(job.country))
         return _safe_fill(el, candidate.salary_for(job.country))
     if re.search(r"location|city|where are you based|current location|where do you live", ll):
-        return _safe_fill(el, "Istanbul, Turkey")
+        return _fill_or_select(el, tag, "Istanbul, Turkey",
+                               ["Located Elsewhere", "Other", "Outside United States",
+                                "International", "Europe", "Turkey"])
     if re.search(r"relocation|willing to relocate|open to reloc|relocate for", ll):
         if tag == "select":
             return _try_select("Yes", "Open to relocation", "Yes, willing to relocate")
