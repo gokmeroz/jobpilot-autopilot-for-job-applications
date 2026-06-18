@@ -35,7 +35,7 @@ paths:
   ledger: data/ledger.sqlite
 
 sheet:
-  worksheet: "JOB_APPLICATIONS_v2"
+  worksheet: "ALL APPLICATIONS"
   columns:
     [
       DATE,
