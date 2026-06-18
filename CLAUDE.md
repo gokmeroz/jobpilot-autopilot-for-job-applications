@@ -213,11 +213,11 @@ Fast growing startups using:
 
 Only include:
 
-Posted within last 48 hours
+Posted within last 24 hours
 
 Preferred:
 
-Last 24 hours
+Last 12 hours
 
 Never knowingly include stale jobs.
 
