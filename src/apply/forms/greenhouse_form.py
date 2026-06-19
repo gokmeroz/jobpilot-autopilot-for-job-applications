@@ -146,22 +146,40 @@ def _pick_react_option(el, page, *candidates: str) -> bool:
         return False
 
     try:
-        # Step 1: click to open, scan without typing
+        # Scroll into view and dismiss any open dropdown before starting
+        el.scroll_into_view_if_needed()
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
+
+        # Step 1: click to open, wait for options (not just the container) to render
         el.click()
-        page.wait_for_selector(OPEN_SEL, timeout=3_000)
+        log.debug("react_select %r: clicked, waiting for options %r", el_id, OPT_SEL)
+        # OPT_SEL waits for actual <div role='option'> children — more reliable than
+        # OPEN_SEL which resolves as soon as the container div appears but before
+        # the option elements are injected by React.
+        try:
+            page.wait_for_selector(OPT_SEL, timeout=5_000)
+        except Exception:
+            log.warning("react_select %r: listbox did not appear after click — trying force-click via JS", el_id)
+            # Fallback: dispatch click event via JS in case Playwright click missed
+            el.evaluate("e => e.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}))")
+            page.wait_for_timeout(300)
+            try:
+                page.wait_for_selector(OPT_SEL, timeout=3_000)
+            except Exception:
+                log.warning("react_select %r: listbox still absent — skipping", el_id)
+                return False
         if _scan_and_click(list(candidates)):
             return True
 
-        # Step 2: type first candidate to filter, then scan again
+        # Step 2: type first candidate to filter — do NOT re-click (dropdown is open)
         if candidates:
-            el.click()
-            page.wait_for_timeout(150)
             for char in candidates[0]:
                 el.type(char)
                 page.wait_for_timeout(25)
             page.wait_for_timeout(400)
             try:
-                page.wait_for_selector(OPEN_SEL, timeout=2_000)
+                page.wait_for_selector(OPT_SEL, timeout=2_000)
                 if _scan_and_click(list(candidates)):
                     return True
                 # Take first filtered result
@@ -172,15 +190,20 @@ def _pick_react_option(el, page, *candidates: str) -> bool:
             except Exception:
                 pass
 
-        # Step 3: re-open and click first option
+        # Step 3: clear filter, re-open, click first option
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(150)
         el.click()
-        page.wait_for_selector(OPEN_SEL, timeout=2_000)
+        try:
+            page.wait_for_selector(OPT_SEL, timeout=2_000)
+        except Exception:
+            return False
         first = page.locator(OPT_SEL).first
         if first.count():
             first.click()
             return True
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("react_select %r: exception — %s", el_id, exc)
     return False
 
 
@@ -396,11 +419,20 @@ class GreenhouseForm(BaseFormFiller):
         # -- Custom questions (question_XXXXXXXXX and other company fields) ---
         # Greenhouse lets companies add per-job questions; we answer them via
         # pattern matching first, then LLM fallback for open-ended text fields.
+        # Wait for React to settle after the standard field fills above — React Select
+        # components can be in a transitional state immediately after focus moves away
+        # from a prior field, causing click-to-open to fail silently.
+        p.wait_for_timeout(600)
         for label_el in p.query_selector_all("label[for^='question_']"):
             try:
                 q_id = label_el.get_attribute("for") or ""
                 label_text = label_el.inner_text().strip()
                 if not q_id or not label_text:
+                    continue
+                # IDs containing [] (Greenhouse multi-select checkbox groups) produce
+                # invalid CSS selectors like #question_123[]_456 — skip them; they are
+                # individual checkbox options, not the question container.
+                if "[" in q_id or "]" in q_id:
                     continue
                 field_el = p.query_selector(f"#{q_id}")
                 if not field_el:
@@ -540,4 +572,36 @@ class GreenhouseForm(BaseFormFiller):
             raise NeedsUserInput(f"Unknown required field: '{label_text or identifier}'")
 
         # -- Submit ----------------------------------------------------------
-        self.submit("#submit_app, button[type='submit']")
+        # Greenhouse new board uses React — aria-disabled must be false before clicking.
+        # Wait up to 5s for the submit button to become enabled after React processes
+        # the last field fill, then use Playwright's Locator API (not ElementHandle)
+        # which correctly handles aria-disabled and synthesizes the full interaction.
+        if not self.dry_run:
+            p.wait_for_timeout(300)
+            btn_sel = "#submit_app, button[type='submit']"
+            try:
+                # Wait for aria-disabled to clear
+                p.wait_for_function(
+                    """() => {
+                        const btn = document.querySelector('button[type="submit"]')
+                                 || document.querySelector('#submit_app');
+                        return btn && btn.getAttribute('aria-disabled') !== 'true';
+                    }""",
+                    timeout=5_000,
+                )
+            except Exception:
+                disabled = p.evaluate(
+                    """() => {
+                        const btn = document.querySelector('button[type="submit"]')
+                                 || document.querySelector('#submit_app');
+                        return btn ? btn.getAttribute('aria-disabled') : 'not-found';
+                    }"""
+                )
+                log.warning("submit button still aria-disabled=%r — clicking anyway", disabled)
+
+            btn_locator = p.locator(btn_sel).first
+            btn_locator.scroll_into_view_if_needed()
+            btn_locator.click()
+            log.info("submit clicked for %s @ %s", self.job.title, self.job.company)
+        else:
+            log.info("dry_run=True — skipping submit for %s @ %s", self.job.title, self.job.company)

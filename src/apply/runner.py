@@ -23,28 +23,56 @@ log = logging.getLogger(__name__)
 _SUCCESS_URL_HINTS = ("confirm", "thank", "success", "submitted", "complete", "thanks", "/done")
 _SUCCESS_BODY_HINTS = (
     "thank you",
+    "thanks for applying",
     "application received",
     "successfully submitted",
     "application submitted",
     "we'll be in touch",
     "application has been submitted",
     "we received your application",
+    "we've received your application",
+    "has been received",
+    "your submission",
+    "you've applied",
+    "applied successfully",
+    "under review",
+)
+
+# Identifiers that are present in the form but gone from DOM after successful submission
+_FORM_GONE_SELECTORS = (
+    "#first_name",
+    "input[name='job_application[first_name]']",
 )
 
 
 def _is_submission_successful(page, original_url: str) -> bool:
-    """Return True only when there is positive evidence the form was accepted."""
+    """Return True when there is positive evidence the form was accepted."""
+    # 1. URL-based: navigated to a URL containing a success hint
     current = page.url
     if current != original_url:
         curr_lower = current.lower()
         if any(h in curr_lower for h in _SUCCESS_URL_HINTS):
             return True
+
+    # 2. Body text: confirmation message visible anywhere on page
     try:
         body = page.locator("body").inner_text(timeout=3_000).lower()
         if any(h in body for h in _SUCCESS_BODY_HINTS):
             return True
     except Exception:
         pass
+
+    # 3. Form disappeared: Greenhouse new-board (job-boards.greenhouse.io) React
+    #    app unmounts the form component after successful submission, removing
+    #    identity inputs from the DOM.  Only check when we're still on a
+    #    greenhouse.io URL (to avoid false positives from navigation to error pages).
+    try:
+        if "greenhouse.io" in page.url:
+            if all(page.query_selector(sel) is None for sel in _FORM_GONE_SELECTORS):
+                return True
+    except Exception:
+        pass
+
     return False
 
 
