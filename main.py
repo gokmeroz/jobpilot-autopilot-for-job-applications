@@ -122,6 +122,16 @@ def _discover(sources: list[str]) -> list:
         print("Fetching from LinkedIn (via Apify)…")
         jobs += linkedin_fetch()
 
+    # Expand: for any job whose URL points to a new Greenhouse/Ashby/Lever
+    # company not already in sources.yaml, fetch ALL their open jobs.
+    if jobs:
+        from src.discover.ats.expander import expand
+        before = len(jobs)
+        jobs = expand(jobs)
+        added = len(jobs) - before
+        if added:
+            print(f"Expander: discovered {added} additional jobs from new ATS companies.")
+
     return jobs
 
 

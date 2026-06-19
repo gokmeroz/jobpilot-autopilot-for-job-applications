@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlparse
 
 from src.models import RemoteType
 
@@ -83,6 +84,27 @@ _COUNTRY_HINTS: dict[str, str] = {
 _REMOTE_RE = re.compile(r"\b(remote|work from home|wfh|anywhere)\b", re.I)
 _HYBRID_RE = re.compile(r"\bhybrid\b", re.I)
 
+# ATS domain → canonical name. Order matters: more specific first.
+_ATS_DOMAINS: dict[str, str] = {
+    "greenhouse.io":       "greenhouse",
+    "lever.co":            "lever",
+    "ashbyhq.com":         "ashby",
+    "workable.com":        "workable",
+    "smartrecruiters.com": "smartrecruiters",
+    "myworkdayjobs.com":   "workday",
+    "jobvite.com":         "jobvite",
+    "icims.com":           "icims",
+    "taleo.net":           "taleo",
+    "successfactors.com":  "successfactors",
+    "breezy.hr":           "breezy",
+    "recruitee.com":       "recruitee",
+    "personio.de":         "personio",
+    "personio.com":        "personio",
+    "bamboohr.com":        "bamboohr",
+    "applytojob.com":      "jobadder",
+    "dover.com":           "dover",
+}
+
 
 def slug(text: str) -> str:
     return _SLUG_RE.sub("-", text.lower()).strip("-")
@@ -98,6 +120,18 @@ def country_from_location(location: str) -> str:
         if hint in lower:
             return iso2
     return "REMOTE"
+
+
+def fingerprint_ats(url: str) -> str | None:
+    """Return the canonical ATS name for a URL, or None if unrecognised."""
+    try:
+        host = urlparse(url).netloc.lower()
+        for domain, name in _ATS_DOMAINS.items():
+            if domain in host:
+                return name
+    except Exception:
+        pass
+    return None
 
 
 def infer_remote(*texts: str) -> RemoteType:

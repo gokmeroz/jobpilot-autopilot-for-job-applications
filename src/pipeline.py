@@ -53,7 +53,7 @@ class PipelineResult:
 # Plan stage
 # ---------------------------------------------------------------------------
 
-_KNOWN_ATS = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters"}
+_KNOWN_ATS = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters"}  # must match _FILLERS keys in runner.py
 
 # Sources that strongly suggest a startup / small company → short cover letter
 _STARTUP_SOURCES = {"wellfound", "ycombinator", "yc", "weworkremotely"}

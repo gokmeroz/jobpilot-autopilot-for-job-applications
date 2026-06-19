@@ -19,6 +19,11 @@ greenhouse:
   Figma:          figma
   Brex:           brex
   Scale AI:       scaleai
+  Twilio:         twilio
+  Twitch:         twitch
+  PlanetScale:    planetscale
+  Cribl:          cribl
+  Duolingo:       duolingo
   # Tier 2 — product / SaaS / fintech
   Adyen:          adyen
   Webflow:        webflow
@@ -33,6 +38,9 @@ greenhouse:
   N26:            n26
   GoCardless:     gocardless
   Remote.com:     remote
+  Wolt:           wolt
+  SumUp:          sumup
+  Trade Republic: traderepublic
   # Tier 3 — junior-friendly startups & scale-ups
   Intercom:       intercom
   Algolia:        algolia
@@ -60,6 +68,8 @@ ashby:
   Mintlify:       mintlify
   Inngest:        inngest
   Clerk:          clerk
+  Browserbase:    browserbase
+  Apify:          apify
   # Product / SaaS
   PostHog:        posthog
   Zapier:         zapier
@@ -67,6 +77,17 @@ ashby:
   Airtable:       airtable
   Loom:           loom
   Vapi:           vapi
+  Lovable:        lovable
+  # AI companies
+  OpenAI:         openai
+  ElevenLabs:     elevenlabs
+  Perplexity:     perplexity
+  Anyscale:       anyscale
+  LlamaIndex:     llamaindex
+  LangChain:      langchain
+  Weaviate:       weaviate
+  Pinecone:       pinecone
+  Tavily:         tavily
   # Junior-friendly startups (verified on posting-api)
   Railway:        railway
   Sanity:         sanity

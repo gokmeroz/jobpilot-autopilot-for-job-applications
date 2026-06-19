@@ -17,7 +17,7 @@ import requests
 
 from src.config import env, load
 from src.models import Job
-from src.normalize import build_job_key, country_from_location, infer_remote
+from src.normalize import build_job_key, country_from_location, fingerprint_ats, infer_remote
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ def _parse_job(raw: dict, iso2: str) -> Job | None:
             timestamp_trusted = posted_at is not None,
             source            = SOURCE,
             source_tier       = SOURCE_TIER,
-            ats               = None,
+            ats               = fingerprint_ats(apply_url),
             apply_url         = apply_url,
             salary            = _parse_salary(raw),
             language          = language,

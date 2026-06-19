@@ -14,41 +14,13 @@ from __future__ import annotations
 import logging
 import re
 import time
-from urllib.parse import urlparse
 
 from src.models import Job
+from src.normalize import fingerprint_ats as _fingerprint
 
 log = logging.getLogger(__name__)
 
-_ATS_MAP: dict[str, str] = {
-    "greenhouse.io":       "greenhouse",
-    "lever.co":            "lever",
-    "ashbyhq.com":         "ashby",
-    "workable.com":        "workable",
-    "smartrecruiters.com": "smartrecruiters",
-    "myworkdayjobs.com":   "workday",
-    "jobvite.com":         "jobvite",
-    "icims.com":           "icims",
-    "taleo.net":           "taleo",
-    "successfactors.com":  "successfactors",
-    "breezy.hr":           "breezy",
-    "recruitee.com":       "recruitee",
-    "personio.de":         "personio",
-    "personio.com":        "personio",
-}
-
 _LINKEDIN_RE = re.compile(r"linkedin\.com", re.I)
-
-
-def _fingerprint(url: str) -> str | None:
-    try:
-        host = urlparse(url).netloc.lower()
-        for domain, name in _ATS_MAP.items():
-            if domain in host:
-                return name
-    except Exception:
-        pass
-    return None
 
 
 def _is_linkedin_url(url: str) -> bool:

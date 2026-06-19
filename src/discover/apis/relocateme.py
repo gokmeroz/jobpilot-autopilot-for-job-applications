@@ -22,7 +22,7 @@ from html.parser import HTMLParser
 import requests
 
 from src.models import Job, RemoteType
-from src.normalize import build_job_key, country_from_location, infer_remote
+from src.normalize import build_job_key, country_from_location, fingerprint_ats, infer_remote
 
 log = logging.getLogger(__name__)
 
@@ -166,7 +166,7 @@ def _parse_detail(path: str) -> Job | None:
                 timestamp_trusted = posted_at is not None,
                 source            = SOURCE,
                 source_tier       = SOURCE_TIER,
-                ats               = None,
+                ats               = fingerprint_ats(url),
                 apply_url         = url,   # login-gated; candidate applies via relocate.me
                 salary            = salary,
                 language          = "EN",

@@ -17,7 +17,7 @@ from html.parser import HTMLParser
 import requests
 
 from src.models import Job, RemoteType
-from src.normalize import build_job_key, country_from_location
+from src.normalize import build_job_key, country_from_location, fingerprint_ats
 
 log = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ def _parse_job(raw: dict) -> Job | None:
             timestamp_trusted = posted_at is not None,
             source            = SOURCE,
             source_tier       = SOURCE_TIER,
-            ats               = None,
+            ats               = fingerprint_ats(apply_url),
             apply_url         = apply_url,
             salary            = salary,
             language          = "EN",
