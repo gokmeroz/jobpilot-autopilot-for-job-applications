@@ -35,6 +35,8 @@ _ALL_SOURCES = [
     "relocateme",
     "ukhired",
     "wellfound",
+    "jsearch",
+    "adzuna",
     "linkedin",
 ]
 
@@ -58,6 +60,8 @@ def _discover(sources: list[str]) -> list:
     from src.discover.apis.weworkremotely import fetch as wwr_fetch
     from src.discover.apis.relocateme import fetch as relocateme_fetch
     from src.discover.apis.ukhired import fetch as ukhired_fetch
+    from src.discover.apis.jsearch import fetch as jsearch_fetch
+    from src.discover.apis.adzuna import fetch as adzuna_fetch
     from src.discover.ats.ashby import fetch as ashby_fetch
     from src.discover.ats.greenhouse import fetch as greenhouse_fetch
     from src.discover.ats.lever import fetch as lever_fetch
@@ -105,6 +109,14 @@ def _discover(sources: list[str]) -> list:
     if "wellfound" in sources:
         print("Fetching from Wellfound (via Apify)…")
         jobs += wellfound_fetch()
+
+    if "jsearch" in sources:
+        print("Fetching from JSearch (RapidAPI)…")
+        jobs += jsearch_fetch()
+
+    if "adzuna" in sources:
+        print("Fetching from Adzuna…")
+        jobs += adzuna_fetch()
 
     if "linkedin" in sources:
         print("Fetching from LinkedIn (via Apify)…")

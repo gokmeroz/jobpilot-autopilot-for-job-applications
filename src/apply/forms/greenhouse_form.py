@@ -75,12 +75,26 @@ def _fill_or_select(el, tag: str, text_value: str, select_opts: list[str]) -> bo
 
 
 def _try_select_fn(el, *opts: str) -> bool:
+    # First: exact label match (fastest)
     for opt in opts:
         try:
             el.select_option(label=opt)
             return True
         except Exception:
             pass
+    # Second: partial text match (handles numbered options like "3. Located Elsewhere")
+    try:
+        options = el.evaluate(
+            "e => Array.from(e.options).map(o => ({v: o.value, t: o.text.trim()}))"
+        )
+        for target in opts:
+            tl = target.lower()
+            for option in options:
+                if option["v"] and tl in option["t"].lower():
+                    el.select_option(value=option["v"])
+                    return True
+    except Exception:
+        pass
     return False
 
 
@@ -135,10 +149,12 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
         if tag == "select":
             return _try_select(candidate.salary_for(job.country))
         return _safe_fill(el, candidate.salary_for(job.country))
-    if re.search(r"location|city|where are you based|current location|where do you live", ll):
+    if re.search(r"location|city|where are you based|current location|where do you live"
+                 r"|country.*located|located.*country|country.*resid|resid.*country"
+                 r"|choose.*country|current country|country of residence", ll):
         return _fill_or_select(el, tag, "Istanbul, Turkey",
-                               ["Located Elsewhere", "Other", "Outside United States",
-                                "International", "Europe", "Turkey"])
+                               ["Turkey", "Located Elsewhere", "Other",
+                                "Outside United States", "International", "Europe"])
     if re.search(r"relocation|willing to relocate|open to reloc|relocate for", ll):
         if tag == "select":
             return _try_select("Yes", "Open to relocation", "Yes, willing to relocate")
