@@ -114,14 +114,101 @@ def _select_react_combobox(el, page, he_pattern: str) -> bool:
     return False
 
 
+def _pick_react_option(el, page, *candidates: str) -> bool:
+    """
+    Drive a Greenhouse React Select combobox (class 'select__input') to pick
+    the best matching option from *candidates*.
+
+    Greenhouse React Select renders options as:
+      <div id="react-select-{field_id}-option-N" role="option" class="select__option ...">
+
+    We scope to the specific listbox `#react-select-{field_id}-listbox` to
+    avoid picking up options from other open dropdowns or the phone flag picker.
+    """
+    el_id = el.get_attribute("id") or ""
+    # Scoped selector: options inside THIS field's listbox
+    LISTBOX_ID = f"react-select-{el_id}-listbox" if el_id else ""
+    OPT_SEL = f"#{LISTBOX_ID} [role='option']" if LISTBOX_ID else "div.select__option[role='option']"
+    OPEN_SEL = f"#{LISTBOX_ID}" if LISTBOX_ID else "div.select__option[role='option']"
+
+    def _scan_and_click(candidates_list: list) -> bool:
+        for opt in page.locator(OPT_SEL).all():
+            try:
+                txt = opt.inner_text().strip()
+                tl = txt.lower()
+                for candidate in candidates_list:
+                    cl = candidate.lower()
+                    if cl in tl or tl in cl:
+                        opt.click()
+                        return True
+            except Exception:
+                pass
+        return False
+
+    try:
+        # Step 1: click to open, scan without typing
+        el.click()
+        page.wait_for_selector(OPEN_SEL, timeout=3_000)
+        if _scan_and_click(list(candidates)):
+            return True
+
+        # Step 2: type first candidate to filter, then scan again
+        if candidates:
+            el.click()
+            page.wait_for_timeout(150)
+            for char in candidates[0]:
+                el.type(char)
+                page.wait_for_timeout(25)
+            page.wait_for_timeout(400)
+            try:
+                page.wait_for_selector(OPEN_SEL, timeout=2_000)
+                if _scan_and_click(list(candidates)):
+                    return True
+                # Take first filtered result
+                first = page.locator(OPT_SEL).first
+                if first.count():
+                    first.click()
+                    return True
+            except Exception:
+                pass
+
+        # Step 3: re-open and click first option
+        el.click()
+        page.wait_for_selector(OPEN_SEL, timeout=2_000)
+        first = page.locator(OPT_SEL).first
+        if first.count():
+            first.click()
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
     """Try to fill a custom Greenhouse question field. Returns True if handled."""
     ll = label.lower().strip()
     tag = el.evaluate("e => e.tagName.toLowerCase()")
     el_type = (el.get_attribute("type") or "text").lower()
 
+    # Detect Greenhouse React Select combobox (class "select__input").
+    # These look like text inputs but require clicking + option picking.
+    is_react_select = "select__input" in (el.get_attribute("class") or "")
+
     def _try_select(*opts: str) -> bool:
         return _try_select_fn(el, *opts)
+
+    def _react_pick(*opts: str) -> bool:
+        """Route to React Select picker when available, else fall back."""
+        if is_react_select and page:
+            return _pick_react_option(el, page, *opts)
+        return _try_select_fn(el, *opts)
+
+    def _fill_or_select_or_react(text_value: str, select_opts: list[str]) -> bool:
+        if is_react_select:
+            return _react_pick(*select_opts) if select_opts else _safe_fill(el, text_value)
+        if tag == "select":
+            return _try_select_fn(el, *select_opts)
+        return _safe_fill(el, text_value)
 
     # --- URL fields ---
     if re.search(r"linkedin", ll):
@@ -135,34 +222,19 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
 
     # --- Factual lookups ---
     if re.search(r"years?.*(professional|work|coding|programming|software|dev)|how many years", ll):
-        return _fill_or_select(el, tag, str(candidate.yoe),
+        return _fill_or_select_or_react(str(candidate.yoe),
                                [str(candidate.yoe), "0", "1", "Less than 1", "Less than 2", "0-1"])
     if re.search(r"how did you hear|referred by|referral source|where did you (find|learn|hear)", ll):
-        if tag == "select":
-            return _try_select("Job board", "LinkedIn", "Online Job Board", "Other")
-        return _safe_fill(el, "Job board")
+        return _fill_or_select_or_react("Job board",
+                               ["Job board", "LinkedIn", "Online Job Board", "Other"])
     if re.search(r"notice period|when can you start|available to start|earliest start|start date", ll):
-        if tag == "select":
-            return _try_select("Immediately", "0 days", "Less than 1 month", "ASAP")
-        return _safe_fill(el, "Immediately available")
+        return _fill_or_select_or_react("Immediately available",
+                               ["Immediately", "0 days", "Less than 1 month", "ASAP"])
     if re.search(r"salary|compensation|expected pay|desired pay|pay expectation|ctc", ll):
-        if tag == "select":
-            return _try_select(candidate.salary_for(job.country))
-        return _safe_fill(el, candidate.salary_for(job.country))
-    if re.search(r"location|city|where are you based|current location|where do you live"
-                 r"|country.*located|located.*country|country.*resid|resid.*country"
-                 r"|choose.*country|current country|country of residence", ll):
-        return _fill_or_select(el, tag, "Istanbul, Turkey",
-                               ["Turkey", "Located Elsewhere", "Other",
-                                "Outside United States", "International", "Europe"])
-    if re.search(r"relocation|willing to relocate|open to reloc|relocate for", ll):
-        if tag == "select":
-            return _try_select("Yes", "Open to relocation", "Yes, willing to relocate")
-        return _safe_fill(el, "Yes")
-    if re.search(r"open to remote|work remotely|remote work|remote position", ll):
-        if tag == "select":
-            return _try_select("Yes", "Remote")
-        return _safe_fill(el, "Yes")
+        val = candidate.salary_for(job.country)
+        return _fill_or_select_or_react(val, [val])
+    # Work-auth and sponsorship checks BEFORE location — "your current location" appears
+    # in questions like "require sponsorship to remain in your current location?"
     if re.search(r"authorized.*(work|employ)|right to work|eligible to work|work authorization", ll):
         country = (job.country or "").upper()
         if country in ("DE", "NL", "IE", "AT"):
@@ -173,14 +245,29 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
             ans = "Yes" if candidate.authorized_us else "No"
         else:
             ans = "No"
-        if tag == "select":
-            return _try_select(ans)
-        return _safe_fill(el, ans)
+        return _fill_or_select_or_react(ans, [ans])
     if re.search(r"visa sponsor|require sponsor|need sponsor|sponsorship|work visa", ll):
         ans = "Yes" if candidate.needs_sponsorship(job.country) else "No"
-        if tag == "select":
-            return _try_select(ans)
-        return _safe_fill(el, ans)
+        return _fill_or_select_or_react(ans, [ans])
+    if re.search(r"preferred name|name.*prefer|prefer.*name|what name|name.*use|call you", ll):
+        return _safe_fill(el, candidate.first_name)
+    if re.search(r"previously worked|worked (at|for)|consulted for", ll):
+        return _fill_or_select_or_react("No", ["No"])
+    if re.search(r"employment agreement|post.?employment|non.?compete|restrictive covenant", ll):
+        return _fill_or_select_or_react("No", ["No"])
+    if re.search(r"proficien|fluenc|experienc|familiar|comfort|knowledge|skill|expert", ll):
+        return _fill_or_select_or_react("Yes", ["Yes"])
+    if re.search(r"location|city|where are you (currently )?based|current location|where do you live"
+                 r"|country.*located|located.*country|country.*resid|resid.*country"
+                 r"|choose.*country|current country|country of residence|currently based", ll):
+        return _fill_or_select_or_react("Istanbul, Turkey",
+                               ["Turkey", "Located Elsewhere", "Other",
+                                "Outside United States", "International", "Europe"])
+    if re.search(r"relocation|willing to relocate|open to reloc|relocate for", ll):
+        return _fill_or_select_or_react("Yes",
+                               ["Yes", "Open to relocation", "Yes, willing to relocate"])
+    if re.search(r"open to remote|work remotely|remote work|remote position", ll):
+        return _fill_or_select_or_react("Yes", ["Yes", "Remote"])
 
     # --- EEO fields — always select, never type ---
     if re.search(r"pronoun", ll):
@@ -213,11 +300,15 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
             )
         return False
 
-    # --- LLM fallback for open text/textarea ---
-    if tag in ("input", "textarea") and el_type not in ("file", "hidden", "checkbox", "radio"):
+    # --- LLM fallback for open text/textarea (not React Select comboboxes) ---
+    if not is_react_select and tag in ("input", "textarea") and el_type not in ("file", "hidden", "checkbox", "radio"):
         answer = _llm_answer_question(label, candidate, job)
         if answer:
             return _safe_fill(el, answer)
+
+    # --- React Select fallback: type nothing, pick first option ---
+    if is_react_select and page:
+        return _pick_react_option(el, page, "Yes", "No")
 
     # --- Select fallback: pick first non-empty non-placeholder option ---
     if tag == "select":
