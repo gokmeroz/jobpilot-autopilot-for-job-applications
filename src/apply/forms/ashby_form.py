@@ -122,6 +122,11 @@ def _answer_custom_field(el, tag: str, label: str, candidate, job) -> bool:
         return _fill_or_select("Yes", ["Yes", "Remote"])
 
     # Work authorization
+    if _re.search(r"gender", ll):
+        return _fill_or_select("Male", ["Male", "Man", "Prefer not to say"])
+    if _re.search(r"pronoun", ll):
+        return _fill_or_select("He/Him", ["He/Him", "He / Him", "Prefer not to say"])
+
     if _re.search(r"visa.*status|right to work|work.*authoriz|work.*status", ll):
         ans = ("I am a Turkish national based in Istanbul and would require visa sponsorship "
                "to work in your country.")
@@ -312,14 +317,25 @@ class AshbyForm(BaseFormFiller):
         except Exception:
             pass
 
+        # -- Required checkboxes (consent / GDPR) ----------------------------
+        for cb in p.locator("input[type='checkbox'][required]").all():
+            try:
+                if not cb.is_checked():
+                    cb.check()
+            except Exception:
+                try:
+                    cb.click()
+                except Exception:
+                    pass
+
         # -- EEO (best-effort) -----------------------------------------------
         for gender_label in ["gender", "Gender identity"]:
-            try:
-                p.get_by_label(gender_label, exact=False).first.select_option(
-                    label="Prefer not to say"
-                )
-            except Exception:
-                pass
+            for _opt in ["Male", "Man", "Prefer not to say"]:
+                try:
+                    p.get_by_label(gender_label, exact=False).first.select_option(label=_opt)
+                    break
+                except Exception:
+                    pass
 
         for pronoun_label in ["pronoun", "Pronouns"]:
             try:

@@ -233,6 +233,16 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
             return _try_select_fn(el, *select_opts)
         return _safe_fill(el, text_value)
 
+    # --- File attach (Mercury-style cover letter or extra doc upload) ---
+    if re.search(r"\battach\b|attach.*file|attach.*doc|upload.*doc", ll):
+        if el_type == "file":
+            try:
+                el.set_input_files(str(candidate.resume_path))
+                return True
+            except Exception:
+                pass
+        return False
+
     # --- URL fields ---
     if re.search(r"linkedin", ll):
         return _safe_fill(el, candidate.linkedin_url)
@@ -286,11 +296,56 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
         return _fill_or_select_or_react("Istanbul, Turkey",
                                ["Turkey", "Located Elsewhere", "Other",
                                 "Outside United States", "International", "Europe"])
+    if re.search(r"(currently|presently).*(work|employed|based)|which country.*(work|current|employ)"
+                 r"|country.*do you (currently|presently)|where.*(currently|presently).*(work|employ)", ll):
+        return _fill_or_select_or_react("Turkey",
+                               ["Turkey", "Türkiye", "Other", "Outside United States", "Europe"])
     if re.search(r"relocation|willing to relocate|open to reloc|relocate for", ll):
         return _fill_or_select_or_react("Yes",
                                ["Yes", "Open to relocation", "Yes, willing to relocate"])
     if re.search(r"open to remote|work remotely|remote work|remote position", ll):
         return _fill_or_select_or_react("Yes", ["Yes", "Remote"])
+    if re.search(r"time.?zone|timezone", ll):
+        return _fill_or_select_or_react("UTC+3",
+                               ["UTC+3", "UTC +3", "GMT+3", "Europe/Istanbul",
+                                "(UTC+03:00)", "Other", "Asia/Istanbul"])
+    if re.search(r"in.person|travel.*required|onsite.*require|meet.*in.person|colleagues.*meet", ll):
+        return _fill_or_select_or_react("Yes", ["Yes", "I agree", "I understand", "I accept"])
+    if re.search(r"high school|secondary school|gcse|a.level|mathematics.*school|school.*maths"
+                 r"|native language.*school|school.*language|school.*performance", ll):
+        return _fill_or_select_or_react("A grade",
+                               ["A", "A+", "A grade", "Excellent", "High Distinction",
+                                "Distinction", "Above Average", "Outstanding", "Top"])
+    if re.search(r"(degree|bachelor|university|college).*(result|grade|class|gpa)"
+                 r"|what.*gpa|cumulative.*gpa|degree classification", ll):
+        return _fill_or_select_or_react("Distinction",
+                               ["First Class Honours", "First", "High Distinction",
+                                "Distinction", "2:1", "Merit", "3.5", "3.7", "A"])
+    if re.search(r"\bagree\b|\bconfirm\b|\baccept\b|\backnowledge\b|\bcertif"
+                 r"|privacy notice|terms|consent|declaration", ll):
+        return _fill_or_select_or_react("Yes",
+                               ["Yes", "I agree", "I confirm", "I accept", "Agree",
+                                "I acknowledge", "I have read"])
+    if re.search(r"nationality|citizen|passport", ll):
+        return _fill_or_select_or_react("Turkish",
+                               ["Turkey", "Turkish", "Türkiye", "Other"])
+    if re.search(r"from where.*intend.*work|intend.*work.*from|where.*work.*from|where.*plan.*work"
+                 r"|work.*location.*intent|intended.*work.*location", ll):
+        return _fill_or_select_or_react("Istanbul, Turkey (Remote)",
+                               ["Remote", "Turkey", "Other", "International", "Outside US"])
+    if re.search(r"why.*want.*join|why.*join|why.*apply|what.*excites|why.*interest|why.*work (at|for|with)", ll):
+        answer = _llm_answer_question(label, candidate, job)
+        return _safe_fill(el, answer) if answer else False
+    if re.search(r"current.*company|most recent company|current employer|last employer|present company", ll):
+        return _safe_fill(el, "Nummoria")
+    if re.search(r"email.*future|future.*job|job.*alert|future.*opening|notify.*job", ll):
+        return _fill_or_select_or_react("Yes", ["Yes", "Opt in", "Subscribe"])
+    if re.search(r"hybrid|office.*model|work from.*office|willing.*office|office.*willing", ll):
+        return _fill_or_select_or_react("Yes", ["Yes", "I am willing", "Willing"])
+    if re.search(r"full.time.*engineer|professional.*setting|maintained.*web|built.*web|software engineer.*professional", ll):
+        return _fill_or_select_or_react("Yes", ["Yes"])
+    if re.search(r"internal tools|developer platform|build.*internal|experience.*tools", ll):
+        return _fill_or_select_or_react("No", ["No", "N/A"])
 
     # --- EEO fields — always select, never type ---
     if re.search(r"pronoun", ll):
@@ -311,7 +366,9 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
 
     if re.search(r"gender", ll):
         if tag == "select":
-            return _try_select("Prefer not to say", "Prefer Not to Say", "Non-binary / third gender")
+            return _try_select("Male", "Man", "Prefer not to say", "Prefer Not to Say", "Non-binary / third gender")
+        if is_react_select and page:
+            return _react_pick("Male", "Man", "Prefer not to say")
         return False
 
     if re.search(r"race|ethnicity|background", ll):
@@ -329,8 +386,11 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
         if answer:
             return _safe_fill(el, answer)
 
-    # --- React Select fallback: type nothing, pick first option ---
+    # --- React Select fallback: ask LLM for a hint, use it to filter options ---
     if is_react_select and page:
+        llm_hint = _llm_answer_question(label, candidate, job)
+        if llm_hint:
+            return _pick_react_option(el, page, llm_hint)
         return _pick_react_option(el, page, "Yes", "No")
 
     # --- Select fallback: pick first non-empty non-placeholder option ---
@@ -362,7 +422,12 @@ class GreenhouseForm(BaseFormFiller):
         job = self.job
         p = self.page
 
-        p.wait_for_load_state("networkidle", timeout=20_000)
+        try:
+            p.wait_for_load_state("networkidle", timeout=20_000)
+        except Exception:
+            # Some boards (e.g. SumUp) keep persistent WebSocket connections and
+            # never reach networkidle. Fall through and wait for the form field.
+            pass
 
         # Guard: companies with custom career portals redirect away from
         # greenhouse.io and their form won't have #first_name — catch early.
@@ -370,6 +435,13 @@ class GreenhouseForm(BaseFormFiller):
             raise NeedsUserInput(
                 f"Redirected to custom career portal ({p.url}) — apply manually"
             )
+
+        # Wait for the identity form field to be present and interactive.
+        # This handles boards that skip networkidle (e.g. SumUp WebSocket).
+        try:
+            p.wait_for_selector("#first_name", timeout=15_000)
+        except Exception:
+            pass
 
         # -- Identity --------------------------------------------------------
         self.fill("#first_name", c.first_name)
@@ -429,10 +501,26 @@ class GreenhouseForm(BaseFormFiller):
                 label_text = label_el.inner_text().strip()
                 if not q_id or not label_text:
                     continue
-                # IDs containing [] (Greenhouse multi-select checkbox groups) produce
-                # invalid CSS selectors like #question_123[]_456 — skip them; they are
-                # individual checkbox options, not the question container.
+                # IDs containing [] are checkbox groups — invalid as CSS selectors.
+                # Find the parent container and check the best matching option.
                 if "[" in q_id or "]" in q_id:
+                    try:
+                        parent = label_el.evaluate_handle(
+                            "el => el.closest('li, .field, .application-field')"
+                            " || el.parentElement.parentElement"
+                        )
+                        cbs = parent.query_selector_all("input[type='checkbox']")
+                        checked = False
+                        for cb in cbs:
+                            val = (cb.get_attribute("value") or "").lower()
+                            if any(t in val for t in ["turkey", "türkiye", "other", "prefer not"]):
+                                cb.check()
+                                checked = True
+                                break
+                        if not checked and cbs:
+                            cbs[-1].check()
+                    except Exception as exc:
+                        log.warning("checkbox group %r: %s", q_id, exc)
                     continue
                 field_el = p.query_selector(f"#{q_id}")
                 if not field_el:
@@ -475,10 +563,12 @@ class GreenhouseForm(BaseFormFiller):
             label_text = (label_el.inner_text() if label_el else "").lower()
 
             if "gender" in label_text:
-                try:
-                    sel.select_option(label="Prefer not to say")
-                except Exception:
-                    pass
+                for _opt in ["Male", "Man", "Prefer not to say", "Prefer Not to Say"]:
+                    try:
+                        sel.select_option(label=_opt)
+                        break
+                    except Exception:
+                        pass
             elif "pronoun" in label_text:
                 try:
                     options = sel.evaluate(
@@ -533,43 +623,86 @@ class GreenhouseForm(BaseFormFiller):
             "twitter", "zip", "postal", "pronouns", "gender", "ethnicity",
             "race", "veteran", "disability", "salary", "compensation",
         }
-        for el in p.query_selector_all("input[required], textarea[required], select[required]"):
-            el_type = el.get_attribute("type") or "text"
-            if el_type == "file":
-                continue
-            val = el.input_value()
-            if val:
-                continue  # already filled
+        for el in p.query_selector_all(
+            "input[required], textarea[required], select[required],"
+            "input[aria-required='true'], textarea[aria-required='true'], select[aria-required='true']"
+        ):
+            try:
+                el_type = el.get_attribute("type") or "text"
+                if el_type in ("file", "checkbox", "radio", "hidden"):
+                    continue
 
-            el_id = el.get_attribute("id") or ""
-            el_name = el.get_attribute("name") or ""
-            identifier = el_id or el_name
+                # React Select comboboxes always have input_value()=="" even when an
+                # option is selected — the value lives in a sibling .select__single-value.
+                # Check that sibling before assuming the field is empty.
+                is_combobox = el.get_attribute("role") == "combobox"
+                if is_combobox:
+                    has_value = el.evaluate("""e => {
+                        const ctrl = e.closest('[class*="select__control"]')
+                                  || e.closest('[class*="select"]')
+                                  || e.parentElement;
+                        if (!ctrl) return false;
+                        const sv = ctrl.querySelector('[class*="single-value"]');
+                        return sv && sv.innerText.trim().length > 0;
+                    }""")
+                    if has_value:
+                        continue
 
-            if any(k in identifier.lower() for k in _known_ids):
-                continue
+                val = el.input_value()
+                if val:
+                    continue  # already filled
 
-            # Resolve a human-readable label
-            label_text = ""
-            if el_id:
-                label_el = p.query_selector(f"label[for='{el_id}']")
-                if label_el:
-                    label_text = label_el.inner_text()
-            if not label_text:
-                label_text = (
-                    el.get_attribute("aria-label")
-                    or el.get_attribute("placeholder")
-                    or ""
-                )
+                el_id = el.get_attribute("id") or ""
+                el_name = el.get_attribute("name") or ""
+                identifier = el_id or el_name
 
-            # Skip if label maps to a known concept we handle
-            if any(k in label_text.lower() for k in _known_labels):
-                continue
+                if any(k in identifier.lower() for k in _known_ids):
+                    continue
 
-            # Skip unidentifiable elements (UI widgets with no id/name/label)
-            if not identifier and not label_text:
-                continue
+                # Resolve a human-readable label
+                label_text = ""
+                if el_id:
+                    label_el = p.query_selector(f"label[for='{el_id}']")
+                    if label_el:
+                        label_text = label_el.inner_text()
+                if not label_text:
+                    label_text = (
+                        el.get_attribute("aria-label")
+                        or el.get_attribute("placeholder")
+                        or ""
+                    )
 
-            raise NeedsUserInput(f"Unknown required field: '{label_text or identifier}'")
+                # Skip if label maps to a known concept we handle
+                if any(k in label_text.lower() for k in _known_labels):
+                    continue
+
+                # Skip unidentifiable elements (UI widgets with no id/name/label)
+                if not identifier and not label_text:
+                    continue
+
+                # One more attempt: try to answer via custom question handler
+                if label_text and _answer_custom_question(label_text, el, c, job, page=p):
+                    continue
+
+                raise NeedsUserInput(f"Unknown required field: '{label_text or identifier}'")
+            except NeedsUserInput:
+                raise
+            except Exception:
+                pass
+
+        # -- Required checkboxes (GDPR consent, certification, privacy) ------
+        # input_value() returns the value attribute on checkboxes ("on"), not
+        # the checked state — so the required-field sweep above misses unchecked
+        # boxes. Check every required unchecked checkbox we can find.
+        for cb in p.query_selector_all("input[type='checkbox'][required]"):
+            try:
+                if not cb.is_checked():
+                    cb.check()
+            except Exception:
+                try:
+                    cb.click()
+                except Exception:
+                    pass
 
         # -- Submit ----------------------------------------------------------
         # Greenhouse new board uses React — aria-disabled must be false before clicking.
@@ -603,5 +736,32 @@ class GreenhouseForm(BaseFormFiller):
             btn_locator.scroll_into_view_if_needed()
             btn_locator.click()
             log.info("submit clicked for %s @ %s", self.job.title, self.job.company)
+
+            # -- Post-submit: detect validation errors and retry once ----------
+            p.wait_for_timeout(2_000)
+            try:
+                invalid_els = p.query_selector_all("[aria-invalid='true']")
+                if invalid_els:
+                    fixed = 0
+                    for inv_el in invalid_els:
+                        try:
+                            eid = inv_el.get_attribute("id") or ""
+                            lbl_el = p.query_selector(f"label[for='{eid}']") if eid else None
+                            lbl_text = lbl_el.inner_text().strip() if lbl_el else (
+                                inv_el.get_attribute("aria-label")
+                                or inv_el.get_attribute("placeholder") or ""
+                            )
+                            if lbl_text:
+                                if _answer_custom_question(lbl_text, inv_el, c, job, page=p):
+                                    fixed += 1
+                        except Exception:
+                            pass
+                    if fixed:
+                        p.wait_for_timeout(500)
+                        btn_locator.click()
+                        log.info("submit re-clicked after fixing %d validation error(s) for %s @ %s",
+                                 fixed, self.job.title, self.job.company)
+            except Exception:
+                pass
         else:
             log.info("dry_run=True — skipping submit for %s @ %s", self.job.title, self.job.company)
