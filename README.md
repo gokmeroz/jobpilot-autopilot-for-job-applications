@@ -60,7 +60,9 @@ Canonical ATS URLs are resolved and checked against the SQLite ledger. Already-a
 Each gated job is scored against your `CANDIDATE.md` profile by an LLM. The rubric evaluates role fit, tech fit, seniority fit, location/relocation fit, and application feasibility. Configurable threshold (default `≥ 6.5 / 10`).
 
 ### 6. Review (human in the loop)
-The pipeline **stops** after scoring and writes a review file to `manual_queue/`. You approve specific jobs before anything is submitted. Auto-apply without review confirmation never happens.
+In `review_first` mode, the pipeline **stops** after scoring and writes a review file to `manual_queue/`. You approve specific jobs before anything is submitted.
+
+In `full_auto` mode, jobs on supported ATS platforms are submitted automatically. Unsupported or blocked jobs are listed at the end as manual applications.
 
 ### 7. Apply
 Playwright fills and submits forms on supported ATS platforms:
@@ -75,7 +77,7 @@ Playwright fills and submits forms on supported ATS platforms:
 | Workday | Manual queue only |
 | CAPTCHA-protected | Manual queue only |
 
-If the filler hits a field it cannot answer from your profile, it raises `NeedsUserInput` and routes the job to the manual queue — never guesses, never fabricates.
+If the filler hits a field it cannot complete, it raises `NeedsUserInput` and routes the job to the manual-required list. Unknown dropdown fallback can be controlled with `apply.allow_select_fallback`.
 
 ### 8. Sync & Report
 Applied and queued jobs are written to Google Sheets. A session report is appended to `history/`.
@@ -262,9 +264,10 @@ score:
   model: claude-haiku-4-5-20251001  # swap to sonnet for higher quality
 
 apply:
-  dry_run: true           # true = fill form + screenshot, never click submit
-  headless: true          # false = watch the browser fill the form
+  dry_run: false          # false = submit applications for real
+  headless: false         # false = watch the browser fill the form
   max_attempts: 2
+  allow_select_fallback: true
   resume_file: assets/resume/resume.pdf
   cover_letter_short: assets/cover_letters/cover_letter_short.md
   cover_letter_long: assets/cover_letters/cover_letter_long.md

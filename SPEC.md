@@ -234,14 +234,13 @@ test:
 ### `config/config.yaml`
 
 ```yaml
-mode: review_first # review_first | full_auto
+mode: full_auto # review_first | full_auto
 
 markets:
   countries: [DE, NL, IE, GB, TR]
   remote_worldwide: true
 
 limits:
-  per_session: 40 # hard cap on submissions per run
   per_country_min: 15 # discovery target, not a guarantee
   turkey_max: 50
 
@@ -825,7 +824,7 @@ learning|rag`) in title+description → `ai_fullstack.md` else
 - `apply` — guardrail #2: in `review_first`, refuse without `APPROVE=1` env.
   Iterate auto-routed: form class by `job.ats`; missing filler →
   queue `no_filler_<ats>`; ≤ `apply.max_attempts`; evidence dir per job;
-  `ledger.record` everything; stop at `limits.per_session`.
+  `ledger.record` everything; continue until every auto-routed job has been attempted.
 - `sync` — `append_jobs(applied + queued)` minus keys already in the sheet.
 - `report` — `report.build` over all stage artifacts.
 - `run` — discover→gate→score→plan, then apply+sync only in `full_auto`;

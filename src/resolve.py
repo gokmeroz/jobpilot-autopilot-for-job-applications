@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from urllib.parse import urlparse
 
 from src.models import Job
 from src.normalize import fingerprint_ats as _fingerprint

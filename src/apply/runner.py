@@ -8,6 +8,11 @@ import logging
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+try:
+    from playwright_stealth import stealth_sync as _stealth_sync
+    _STEALTH_AVAILABLE = True
+except ImportError:
+    _STEALTH_AVAILABLE = False
 
 from src.apply.base import ApplicationResult, BaseFormFiller, NeedsUserInput
 from src.apply.candidate import load_candidate
@@ -165,6 +170,8 @@ def _run_browser(
             ),
         )
         page = ctx.new_page()
+        if _STEALTH_AVAILABLE:
+            _stealth_sync(page)
         filler = filler_cls(page, job, candidate, cfg)
 
         try:
@@ -186,8 +193,20 @@ def _run_browser(
                 # Submit happens inside fill_form → wait then verify
                 page.wait_for_load_state("networkidle", timeout=15_000)
                 filler.screenshot("03_submitted", evidence)
+                log.info("post-submit URL: %s", page.url)
+                try:
+                    _body_snippet = page.locator("body").inner_text(timeout=3_000)[:300].replace("\n", " ")
+                    log.info("post-submit body snippet: %r", _body_snippet)
+                except Exception:
+                    pass
+                _fn_el = page.query_selector("#first_name")
+                log.info("post-submit #first_name present: %s", _fn_el is not None)
 
-                if not _is_submission_successful(page, job.apply_url):
+                # When the form was inside an iframe, filler.page is a Frame object
+                # (the iframe's context). Check the frame for confirmation too.
+                _form_page = filler.page
+                if not _is_submission_successful(page, job.apply_url) and \
+                   not _is_submission_successful(_form_page, job.apply_url):
                     log.warning(
                         "submission failed (no confirmation) — %s @ %s",
                         job.title, job.company,

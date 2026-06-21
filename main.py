@@ -456,8 +456,12 @@ def main() -> int:
         _dry_run(jobs)
         return 0
 
+    from src.config import load as _load_cfg
     from src.pipeline import run as pipeline_run
     result = pipeline_run(jobs, run_id=args.run_id)
+
+    if _load_cfg("config").get("mode") == "full_auto":
+        return 0
 
     _interactive_review(result)
     return 0

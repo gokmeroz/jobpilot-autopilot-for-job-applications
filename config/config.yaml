@@ -1,11 +1,10 @@
-mode: review_first # review_first | full_auto
+mode: full_auto # review_first | full_auto
 
 markets:
   countries: [DE, NL, IE, GB, TR]
   remote_worldwide: true
 
 limits:
-  per_session: 40 # hard cap on submissions per run
   per_country_min: 15 # discovery target, not a guarantee
   turkey_max: 50
 
@@ -22,8 +21,9 @@ score:
 
 apply:
   dry_run: false  # true = fill + screenshot, never click submit
-  headless: true
+  headless: false
   max_attempts: 2
+  allow_select_fallback: true  # true = choose first non-placeholder option for unknown dropdowns
   resume_file: assets/resume/resume.pdf
   cover_letter_short: assets/cover_letters/cover_letter_short.md
   cover_letter_long: assets/cover_letters/cover_letter_long.md

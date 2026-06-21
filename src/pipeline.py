@@ -47,13 +47,14 @@ class PipelineResult:
     review_file: Path | None = None
     report_file: Path | None = None
     jobs_for_review: list[Job] = field(default_factory=list)
+    manual_required_jobs: list[Job] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
 # Plan stage
 # ---------------------------------------------------------------------------
 
-_KNOWN_ATS = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters"}  # must match _FILLERS keys in runner.py
+_DEFAULT_AUTO_ATS = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters"}  # must match _FILLERS keys in runner.py
 
 # Sources that strongly suggest a startup / small company → short cover letter
 _STARTUP_SOURCES = {"wellfound", "ycombinator", "yc", "weworkremotely"}
@@ -61,8 +62,8 @@ _STARTUP_SOURCES = {"wellfound", "ycombinator", "yc", "weworkremotely"}
 
 def _assign_plan(job: Job, cfg: dict) -> Job:
     """Choose route (auto/manual) and cover letter path."""
-    # Route: auto only if we have a recognised ATS
-    route = Route.auto if (job.ats or "").lower() in _KNOWN_ATS else Route.manual
+    # Route: auto for every ATS that has a filler implementation.
+    route = Route.auto if (job.ats or "").lower() in _DEFAULT_AUTO_ATS else Route.manual
 
     # Cover letter: short for startups/small companies, long otherwise
     source_lower = (job.source or "").lower()
@@ -73,6 +74,10 @@ def _assign_plan(job: Job, cfg: dict) -> Job:
     cover_path = cfg["apply"][cover_key]
 
     return job.model_copy(update={"route": route, "cover_letter": cover_path})
+
+
+def _manual_reason(job: Job) -> str:
+    return job.fail_reason or job.gate_reason or "manual application required"
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +181,24 @@ def _write_report(result: PipelineResult, cfg: dict) -> Path:
         if rationale:
             lines.append(f"  _{rationale}_")
 
+    lines += [
+        "",
+        "## Manual Required",
+        "",
+    ]
+    if result.manual_required_jobs:
+        lines += [
+            "| Role | Company | Country | ATS | Reason | Apply Link |",
+            "|------|---------|---------|-----|--------|------------|",
+        ]
+        for job in result.manual_required_jobs:
+            lines.append(
+                f"| {job.title} | {job.company} | {job.country} | {job.ats or '—'} "
+                f"| {_manual_reason(job)} | {job.apply_url} |"
+            )
+    else:
+        lines.append("None.")
+
     path.write_text("\n".join(lines) + "\n")
     log.info("report written → %s", path.relative_to(ROOT))
     return path
@@ -278,11 +301,11 @@ def run(jobs: list[Job], *, run_id: str | None = None) -> PipelineResult:
         _print_summary(result)
         return result
 
-    # 10. full_auto: split by route, apply to auto jobs, queue manual ones
+    # 10. full_auto: apply every auto-routable job, queue manual-only jobs
     auto_jobs   = [j for j in sorted_planned if j.route == Route.auto]
     manual_jobs = [j for j in sorted_planned if j.route != Route.auto]
 
-    log.info("full_auto: %d auto-apply, %d manual", len(auto_jobs), len(manual_jobs))
+    log.info("full_auto: %d auto-apply, %d queued/manual", len(auto_jobs), len(manual_jobs))
 
     apply_results = apply_batch(auto_jobs, run_id)
 
@@ -295,7 +318,7 @@ def run(jobs: list[Job], *, run_id: str | None = None) -> PipelineResult:
         ar = result_by_key.get(job.job_key)
         if ar:
             ledger.mark_status(job, ar.status, run_id)
-            updated = job.model_copy(update={"status": ar.status})
+            updated = job.model_copy(update={"status": ar.status, "fail_reason": ar.reason})
             if ar.status == Status.applied:
                 applied_jobs.append(updated)
                 result.applied += 1
@@ -307,6 +330,8 @@ def run(jobs: list[Job], *, run_id: str | None = None) -> PipelineResult:
         ledger.mark_status(job, Status.queued, run_id)
 
     # 11. Sync to sheet — applied + queued (manual)
+    result.manual_required_jobs = queued_jobs
+    result.needs_user_input = len(queued_jobs)
     all_to_sync = [j.model_copy(update={"status": Status.applied}) for j in applied_jobs] + \
                   [j.model_copy(update={"status": Status.queued})  for j in queued_jobs]
     try:
@@ -336,3 +361,12 @@ def _print_summary(result: PipelineResult) -> None:
       Report → {result.report_file}
     ─────────────────────────────────────────────────────
     """).strip())
+
+    if result.manual_required_jobs:
+        print("\nManual apply required:")
+        for i, job in enumerate(result.manual_required_jobs, 1):
+            print(
+                f"  {i}. {job.title} @ {job.company} ({job.country}) "
+                f"[{job.ats or 'manual'}] — {_manual_reason(job)}"
+            )
+            print(f"     {job.apply_url}")

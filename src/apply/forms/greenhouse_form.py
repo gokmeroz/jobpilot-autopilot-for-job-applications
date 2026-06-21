@@ -148,7 +148,10 @@ def _pick_react_option(el, page, *candidates: str) -> bool:
     try:
         # Scroll into view and dismiss any open dropdown before starting
         el.scroll_into_view_if_needed()
-        page.keyboard.press("Escape")
+        # page may be a Frame (no .keyboard) when form is inside an iframe;
+        # keyboard events target the currently focused element regardless of frame.
+        if hasattr(page, "keyboard"):
+            page.keyboard.press("Escape")
         page.wait_for_timeout(200)
 
         # Step 1: click to open, wait for options (not just the container) to render
@@ -191,7 +194,8 @@ def _pick_react_option(el, page, *candidates: str) -> bool:
                 pass
 
         # Step 3: clear filter, re-open, click first option
-        page.keyboard.press("Escape")
+        if hasattr(page, "keyboard"):
+            page.keyboard.press("Escape")
         page.wait_for_timeout(150)
         el.click()
         try:
@@ -207,7 +211,7 @@ def _pick_react_option(el, page, *candidates: str) -> bool:
     return False
 
 
-def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
+def _answer_custom_question(label: str, el, candidate, job, page=None, cfg: dict | None = None) -> bool:
     """Try to fill a custom Greenhouse question field. Returns True if handled."""
     ll = label.lower().strip()
     tag = el.evaluate("e => e.tagName.toLowerCase()")
@@ -258,8 +262,9 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
         return _fill_or_select_or_react(str(candidate.yoe),
                                [str(candidate.yoe), "0", "1", "Less than 1", "Less than 2", "0-1"])
     if re.search(r"how did you hear|referred by|referral source|where did you (find|learn|hear)", ll):
-        return _fill_or_select_or_react("Job board",
-                               ["Job board", "LinkedIn", "Online Job Board", "Other"])
+        return _fill_or_select_or_react("Careers Website",
+                               ["Careers Website", "Career Website", "Company Website",
+                                "LinkedIn", "Job board", "Online Job Board"])
     if re.search(r"notice period|when can you start|available to start|earliest start|start date", ll):
         return _fill_or_select_or_react("Immediately available",
                                ["Immediately", "0 days", "Less than 1 month", "ASAP"])
@@ -268,7 +273,19 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
         return _fill_or_select_or_react(val, [val])
     # Work-auth and sponsorship checks BEFORE location — "your current location" appears
     # in questions like "require sponsorship to remain in your current location?"
-    if re.search(r"authorized.*(work|employ)|right to work|eligible to work|work authorization", ll):
+    # "are you based/located in [city]?" — yes/no about a specific location
+    if re.search(r"are you (currently )?(based|located|living|residing|working) in\b", ll):
+        # If the question names Istanbul or Turkey → Yes; any other city → No
+        if re.search(r"istanbul|turkey|türkiye", ll):
+            return _fill_or_select_or_react("Yes", ["Yes"])
+        return _fill_or_select_or_react("No", ["No", "No, I am not"])
+
+    # "on-site / office-first" willingness — candidate is open to relocating
+    if re.search(r"work on.?site|office.first|able to work.*office|work.*from.*office", ll):
+        return _fill_or_select_or_react("Yes", ["Yes", "I am", "I can", "I agree"])
+
+    # British spelling "authorised" as well as American "authorized"
+    if re.search(r"authoris?ed.*(work|employ)|right to work|eligible to work|work authori[sz]ation", ll):
         country = (job.country or "").upper()
         if country in ("DE", "NL", "IE", "AT"):
             ans = "Yes" if candidate.authorized_eu else "No"
@@ -290,11 +307,30 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
         return _fill_or_select_or_react("No", ["No"])
     if re.search(r"proficien|fluenc|experienc|familiar|comfort|knowledge|skill|expert", ll):
         return _fill_or_select_or_react("Yes", ["Yes"])
+    if re.search(r"location.*city|city.*location|location \(city\)", ll):
+        # React autocomplete (Google Places): type then accept
+        if page:
+            try:
+                el.click()
+                el.fill("")
+                el.type("Istanbul", delay=40)
+                page.wait_for_timeout(900)
+                sug = page.query_selector(
+                    ".pac-item, [class*='suggestion'], [class*='option'][role='option']"
+                )
+                if sug:
+                    sug.click()
+                else:
+                    el.press("Tab")
+                return True
+            except Exception:
+                pass
+        return _safe_fill(el, "Istanbul, Turkey")
     if re.search(r"location|city|where are you (currently )?based|current location|where do you live"
                  r"|country.*located|located.*country|country.*resid|resid.*country"
                  r"|choose.*country|current country|country of residence|currently based", ll):
         return _fill_or_select_or_react("Istanbul, Turkey",
-                               ["Turkey", "Located Elsewhere", "Other",
+                               ["Turkey", "Located Elsewhere",
                                 "Outside United States", "International", "Europe"])
     if re.search(r"(currently|presently).*(work|employed|based)|which country.*(work|current|employ)"
                  r"|country.*do you (currently|presently)|where.*(currently|presently).*(work|employ)", ll):
@@ -333,6 +369,26 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
                  r"|work.*location.*intent|intended.*work.*location", ll):
         return _fill_or_select_or_react("Istanbul, Turkey (Remote)",
                                ["Remote", "Turkey", "Other", "International", "Outside US"])
+
+    # OFAC / export-control countries question — always "No"
+    if re.search(r"cuba|iran\b|north korea|syria|crimea|ofac|sanctioned countr|restricted countr"
+                 r"|citizen.*resident.*(?:cuba|iran|north korea|syria|crimea)"
+                 r"|(?:cuba|iran|north korea|syria|crimea).*citizen", ll):
+        return _fill_or_select_or_react("No", ["No", "None of the above"])
+
+    # "Which US state will you reside / work from?" — candidate is in Turkey
+    if re.search(r"which state.*reside|which state.*work|state.*plan.*reside"
+                 r"|state do you plan|state.*will you.*work|which (us )?state", ll):
+        # Try non-US options first; if not available raise for manual handling
+        if is_react_select and page:
+            picked = _pick_react_option(el, page,
+                "Outside the United States", "Outside US", "International",
+                "I do not reside in a US state", "Other")
+            if picked:
+                return True
+        raise NeedsUserInput(
+            f"US state residency question requires manual answer: {label!r}"
+        )
     if re.search(r"why.*want.*join|why.*join|why.*apply|what.*excites|why.*interest|why.*work (at|for|with)", ll):
         answer = _llm_answer_question(label, candidate, job)
         return _safe_fill(el, answer) if answer else False
@@ -371,14 +427,60 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
             return _react_pick("Male", "Man", "Prefer not to say")
         return False
 
-    if re.search(r"race|ethnicity|background", ll):
+    if re.search(r"race|ethnicity|ethnic background", ll):
+        # Always decline — NEVER pick an actual racial/ethnic group.
+        # Do NOT include "Other" here: partial match hits "Native Hawaiian or Other…".
+        _decline_race = [
+            "Decline to Self-Identify", "Decline to self-identify",
+            "Decline to State", "Decline to state",
+            "Decline to identify",
+            "I prefer not to disclose", "I prefer not to answer",
+            "Prefer not to say", "Prefer not to disclose",
+            "I don't wish to answer", "I do not wish to answer",
+            "I wish not to identify", "Choose not to disclose",
+        ]
         if tag == "select":
-            return _try_select(
-                "Prefer not to say", "I don't wish to answer",
-                "I do not wish to answer", "Decline to state",
-                "Decline to identify", "Choose not to disclose", "Other",
-            )
-        return False
+            return _try_select(*_decline_race)
+        if is_react_select and page:
+            return _react_pick("Decline", "Prefer not", "not to answer")
+        return False  # never type a race into a text field
+
+    if re.search(r"disabilit|disabled", ll):
+        # Always select "no disability" or the decline option — never invent one.
+        _no_disab = [
+            "No, I Don't Have a Disability",
+            "No, I don't have a disability",
+            "No, I do not have a disability",
+            "I don't have a disability",
+            "I do not have a disability",
+            "Not disabled", "Not Disabled", "No disability",
+            "No",
+            "I prefer not to answer", "I don't wish to answer",
+            "Prefer not to disclose", "Decline to state",
+        ]
+        if tag == "select":
+            return _try_select(*_no_disab)
+        if is_react_select and page:
+            return _react_pick("No, I don", "not have", "No disability", "prefer not")
+        return False  # never type disability status
+
+    if re.search(r"veteran|protected veteran|military service|armed forces", ll):
+        # Candidate has no military service.
+        _not_vet = [
+            "I am not a protected veteran",
+            "I am not a veteran",
+            "Not a Protected Veteran", "Not a protected veteran",
+            "Not a Veteran", "Not a veteran",
+            "I am not a veteran or a separated service member",
+            "I don't wish to answer", "I prefer not to answer",
+            "Prefer not to disclose", "Decline to state",
+            "No",
+        ]
+        if tag == "select":
+            return _try_select(*_not_vet)
+        if is_react_select and page:
+            return _react_pick("not a protected veteran", "not a veteran", "prefer not")
+        return False  # never type veteran status
 
     # --- LLM fallback for open text/textarea (not React Select comboboxes) ---
     if not is_react_select and tag in ("input", "textarea") and el_type not in ("file", "hidden", "checkbox", "radio"):
@@ -386,15 +488,13 @@ def _answer_custom_question(label: str, el, candidate, job, page=None) -> bool:
         if answer:
             return _safe_fill(el, answer)
 
-    # --- React Select fallback: ask LLM for a hint, use it to filter options ---
+    # --- React Select fallback: try Yes/No — never type long LLM text into a dropdown ---
     if is_react_select and page:
-        llm_hint = _llm_answer_question(label, candidate, job)
-        if llm_hint:
-            return _pick_react_option(el, page, llm_hint)
         return _pick_react_option(el, page, "Yes", "No")
 
-    # --- Select fallback: pick first non-empty non-placeholder option ---
-    if tag == "select":
+    # --- Select fallback: opt-in only. Unknown dropdowns are too risky to guess.
+    allow_select_fallback = bool((cfg or {}).get("apply", {}).get("allow_select_fallback", False))
+    if tag == "select" and allow_select_fallback:
         try:
             options = el.evaluate(
                 "e => Array.from(e.options).map(o => ({v: o.value, t: o.text}))"
@@ -429,12 +529,110 @@ class GreenhouseForm(BaseFormFiller):
             # never reach networkidle. Fall through and wait for the form field.
             pass
 
-        # Guard: companies with custom career portals redirect away from
-        # greenhouse.io and their form won't have #first_name — catch early.
+        # Guard: companies like SumUp and N26 embed the Greenhouse form in an
+        # iframe on their own domain (URL never becomes greenhouse.io).
+        # Strategy:
+        #   1. Click the page's "Apply" button to activate the embedded form.
+        #   2. Wait for a greenhouse.io frame to appear in the browser context.
+        #   3. If the frame shows the job description first, click "Apply" again
+        #      inside the frame to reach the application form.
+        #   4. Switch self.page to the frame so all subsequent fills target it.
+        #      (self._parent_page keeps the original Page for screenshots/keyboard.)
         if "greenhouse.io" not in p.url and not p.query_selector("#first_name"):
-            raise NeedsUserInput(
-                f"Redirected to custom career portal ({p.url}) — apply manually"
-            )
+            _on_form  = False
+            _parent   = p   # original Page — needed for screenshots & keyboard
+
+            # Step 1: click the visible "Apply" button on the host page
+            for _apply_text in [
+                "Apply now", "Apply Now",
+                "Apply for this Job", "Apply for this job",
+                "Apply to this position", "Apply for this position",
+            ]:
+                try:
+                    _btn = p.get_by_text(_apply_text, exact=False).first
+                    if _btn.count() > 0 and _btn.is_visible():
+                        _btn.click()
+                        p.wait_for_timeout(2_000)
+                        break
+                except Exception:
+                    continue
+
+            # Step 2: find the greenhouse.io frame (may load lazily via JS)
+            p.wait_for_timeout(1_500)
+            # If no frame yet, wait for one to appear (N26 and similar lazy loaders)
+            if not any(f.url and "greenhouse.io" in f.url for f in p.frames):
+                try:
+                    p.wait_for_selector("iframe[src*='greenhouse']", timeout=8_000)
+                    p.wait_for_timeout(1_000)
+                except Exception:
+                    pass
+            try:
+                _gh_frames = [f for f in p.frames if f.url and "greenhouse.io" in f.url]
+                if _gh_frames:
+                    _frame = _gh_frames[0]
+
+                    # Step 3: the frame might show the job description first —
+                    # click its own "Apply" button if #first_name isn't visible yet.
+                    try:
+                        _frame.wait_for_selector("#first_name", timeout=3_000)
+                        _on_form = True
+                    except Exception:
+                        for _inner_text in [
+                            "Apply for this Job", "Apply for this job",
+                            "Apply to this job", "Apply",
+                        ]:
+                            try:
+                                _inner_btn = _frame.get_by_text(_inner_text, exact=False).first
+                                if _inner_btn.count() > 0:
+                                    _inner_btn.click()
+                                    _frame.wait_for_selector("#first_name", timeout=8_000)
+                                    _on_form = True
+                                    break
+                            except Exception:
+                                continue
+
+                    if _on_form:
+                        # Switch filler context to the iframe
+                        self._parent_page = _parent
+                        self.page = _frame
+                        p = _frame
+                        log.info("switched to greenhouse iframe at %s", _frame.url[:80])
+            except Exception as _exc:
+                log.debug("iframe strategy failed: %s", _exc)
+
+            if not _on_form:
+                raise NeedsUserInput(
+                    f"Redirected to custom career portal ({_parent.url}) — apply manually"
+                )
+
+        # -- Email verification code detection ----------------------------------
+        # Some Greenhouse-embedded portals ask the user to verify their email
+        # before showing the form.  Pause and read the code from stdin.
+        _VERIF_SELS = [
+            "input[placeholder*='verification code' i]",
+            "input[placeholder*='enter code' i]",
+            "input[aria-label*='verification code' i]",
+            "input[name*='verification' i]",
+            "input[name*='confirm_code' i]",
+            "input[name*='otp' i]",
+            "input[type='number'][maxlength='6']",
+            "input[type='tel'][maxlength='6']",
+        ]
+        try:
+            for _vsel in _VERIF_SELS:
+                _vc = p.query_selector(_vsel)
+                if _vc and _vc.is_visible():
+                    _code = input(
+                        f"\n>>> Verification code sent to {c.email}.\n"
+                        f"    Check your inbox, then type the code and press Enter: "
+                    ).strip()
+                    if _code:
+                        _vc.fill(_code)
+                        _vc.press("Enter")
+                        p.wait_for_timeout(2_000)
+                    break
+        except Exception:
+            pass
 
         # Wait for the identity form field to be present and interactive.
         # This handles boards that skip networkidle (e.g. SumUp WebSocket).
@@ -448,16 +646,49 @@ class GreenhouseForm(BaseFormFiller):
         self.fill("#last_name", c.last_name)
         self.fill("#email", c.email)
         self.fill("#phone", c.phone)
+        # Preferred-name field (Twilio and others): single first name only
+        self.fill("#preferred_name", c.first_name.split()[0])
+
+        # -- Country React Select (Greenhouse v2 new board) ------------------
+        try:
+            _country_el = p.query_selector("[id='country']")
+            if _country_el and "select__input" in (_country_el.get_attribute("class") or ""):
+                _pick_react_option(_country_el, p, "Turkey", "Türkiye")
+        except Exception:
+            pass
 
         # -- Location --------------------------------------------------------
-        # Greenhouse v2 uses #candidate-location; classic boards use #location
-        self.fill_first([
-            "#candidate-location",
-            "#location",
-            "input[id*='location' i]",
-            "input[placeholder*='city' i]",
-            "input[placeholder*='location' i]",
-        ], "Istanbul, Turkey")
+        # Greenhouse v2 uses #candidate-location which is a React autocomplete
+        # (Google Places).  A plain .fill() sets the <input> value but doesn't
+        # fire the change event React listens to, leaving the field aria-invalid.
+        # Strategy: type the city name, wait for the suggestion dropdown, then
+        # press Enter or click the first suggestion.
+        _loc_filled = False
+        try:
+            loc_el = p.wait_for_selector("#candidate-location", timeout=3_000)
+            if loc_el:
+                loc_el.click()
+                loc_el.fill("")
+                loc_el.type("Istanbul", delay=40)
+                p.wait_for_timeout(900)
+                # Accept the first autocomplete suggestion if one appeared
+                suggestion = p.query_selector(
+                    ".pac-item, [class*='suggestion'], [class*='option'][role='option']"
+                )
+                if suggestion:
+                    suggestion.click()
+                else:
+                    loc_el.press("Tab")   # commit the typed value
+                _loc_filled = True
+        except Exception:
+            pass
+        if not _loc_filled:
+            self.fill_first([
+                "#location",
+                "input[id*='location' i]",
+                "input[placeholder*='city' i]",
+                "input[placeholder*='location' i]",
+            ], "Istanbul, Turkey")
 
         # -- Resume ----------------------------------------------------------
         uploaded = self.upload("input#resume", c.resume_path)
@@ -495,32 +726,40 @@ class GreenhouseForm(BaseFormFiller):
         # components can be in a transitional state immediately after focus moves away
         # from a prior field, causing click-to-open to fail silently.
         p.wait_for_timeout(600)
+        _checked_groups: set = set()   # tracks which checkbox groups already have a pick
         for label_el in p.query_selector_all("label[for^='question_']"):
             try:
                 q_id = label_el.get_attribute("for") or ""
                 label_text = label_el.inner_text().strip()
                 if not q_id or not label_text:
                     continue
-                # IDs containing [] are checkbox groups — invalid as CSS selectors.
-                # Find the parent container and check the best matching option.
+                # IDs containing [] are individual options inside a checkbox/radio group.
                 if "[" in q_id or "]" in q_id:
-                    try:
-                        parent = label_el.evaluate_handle(
-                            "el => el.closest('li, .field, .application-field')"
-                            " || el.parentElement.parentElement"
-                        )
-                        cbs = parent.query_selector_all("input[type='checkbox']")
-                        checked = False
-                        for cb in cbs:
-                            val = (cb.get_attribute("value") or "").lower()
-                            if any(t in val for t in ["turkey", "türkiye", "other", "prefer not"]):
-                                cb.check()
-                                checked = True
-                                break
-                        if not checked and cbs:
-                            cbs[-1].check()
-                    except Exception as exc:
-                        log.warning("checkbox group %r: %s", q_id, exc)
+                    option_lbl = label_text.lower()
+                    group_base = q_id.split("[")[0]  # e.g. "question_64120995"
+                    _career = ["careers website", "career website", "company website", "career page"]
+                    _secondary = ["linkedin"]
+                    _ack = ["acknowledge", "confirm", "certify", "i agree", "i accept"]
+
+                    if any(s in option_lbl for s in _career):
+                        try:
+                            label_el.click()
+                            _checked_groups.add(group_base)
+                        except Exception:
+                            pass
+                    elif any(s in option_lbl for s in _secondary) and group_base not in _checked_groups:
+                        # Only pick LinkedIn if no career-site option was already checked
+                        try:
+                            label_el.click()
+                            _checked_groups.add(group_base)
+                        except Exception:
+                            pass
+                    elif any(s in option_lbl for s in _ack):
+                        try:
+                            label_el.click()
+                        except Exception:
+                            pass
+                    # All other options (Twitter, Glassdoor, Indeed, Other…) → skip
                     continue
                 field_el = p.query_selector(f"#{q_id}")
                 if not field_el:
@@ -531,7 +770,7 @@ class GreenhouseForm(BaseFormFiller):
                         continue
                 except Exception:
                     pass
-                answered = _answer_custom_question(label_text, field_el, c, job, page=p)
+                answered = _answer_custom_question(label_text, field_el, c, job, page=p, cfg=self.cfg)
                 if not answered:
                     log.warning("unanswered custom question: %r", label_text)
             except Exception as exc:
@@ -557,58 +796,72 @@ class GreenhouseForm(BaseFormFiller):
                 needs = self.candidate.needs_sponsorship(job.country)
                 sel.select_option(label="Yes" if needs else "No")
 
-        # -- EEO (optional, best-effort) -------------------------------------
-        for sel in p.query_selector_all("select"):
-            label_el = p.query_selector(f"label[for='{sel.get_attribute('id')}']")
-            label_text = (label_el.inner_text() if label_el else "").lower()
+        # -- EEO React Select comboboxes (numeric IDs on Greenhouse new board) --
+        # On job-boards.greenhouse.io, EEO fields use React Select comboboxes
+        # (class="select__input", role="combobox") NOT regular <select> elements.
+        # We iterate labels and target only these fields (non-question_ IDs).
+        p.wait_for_timeout(400)
+        for _eeo_lbl in p.query_selector_all("label[for]"):
+            try:
+                _fid = _eeo_lbl.get_attribute("for") or ""
+                if not _fid or "[" in _fid or _fid.startswith("question_"):
+                    continue
+                if _fid in ("first_name", "last_name", "email", "phone",
+                            "resume", "cover_letter", "country",
+                            "candidate-location", "location", "preferred_name"):
+                    continue
+                _eeo_el = p.query_selector(f"[id='{_fid}']")
+                if not _eeo_el:
+                    continue
+                _is_combo = (
+                    _eeo_el.get_attribute("role") == "combobox"
+                    or "select__input" in (_eeo_el.get_attribute("class") or "")
+                )
+                if not _is_combo:
+                    continue
+                _eeo_lbl_text = _eeo_lbl.inner_text().strip().lower()
 
-            if "gender" in label_text:
-                for _opt in ["Male", "Man", "Prefer not to say", "Prefer Not to Say"]:
-                    try:
-                        sel.select_option(label=_opt)
-                        break
-                    except Exception:
-                        pass
-            elif "pronoun" in label_text:
-                try:
-                    options = sel.evaluate(
-                        "e => Array.from(e.options).map(o => ({v: o.value, t: o.text.trim()}))"
-                    )
-                    for opt in options:
-                        if re.search(r"\bhe\b", opt["t"], re.IGNORECASE):
-                            sel.select_option(value=opt["v"])
-                            break
-                except Exception:
-                    pass
-            elif "race" in label_text or "ethnicity" in label_text or "background" in label_text:
-                # Prefer decline; only fall back to "Other" if no decline option exists
-                declined = False
-                for opt in ["Prefer not to say", "I don't wish to answer",
-                            "I do not wish to answer", "Decline to state",
-                            "Decline to identify", "Choose not to disclose"]:
-                    try:
-                        sel.select_option(label=opt)
-                        declined = True
-                        break
-                    except Exception:
-                        pass
-                if not declined:
-                    for opt in ["Other", "Other (please specify)"]:
-                        try:
-                            sel.select_option(label=opt)
-                            break
-                        except Exception:
-                            pass
-            elif "veteran" in label_text:
-                try:
-                    sel.select_option(label="I am not a protected veteran")
-                except Exception:
-                    pass
-            elif "disability" in label_text:
-                try:
-                    sel.select_option(label="I don't wish to answer")
-                except Exception:
-                    sel.select_option(label="I do not wish to answer")
+                if "gender" in _eeo_lbl_text:
+                    _pick_react_option(_eeo_el, p, "Male", "Man", "Prefer not to say")
+                elif "pronoun" in _eeo_lbl_text:
+                    _pick_react_option(_eeo_el, p, "He/Him", "He / Him", "He", "Prefer not to say")
+                elif "race" in _eeo_lbl_text or "ethnicity" in _eeo_lbl_text:
+                    _pick_react_option(_eeo_el, p,
+                        "Decline to Self-Identify", "Decline to state",
+                        "Prefer not to say", "I don't wish to answer")
+                elif "disability" in _eeo_lbl_text:
+                    _pick_react_option(_eeo_el, p,
+                        "No, I Don't Have a Disability",
+                        "No, I do not have a disability",
+                        "I Don't Wish to Answer",
+                        "I don't wish to answer")
+                elif "veteran" in _eeo_lbl_text:
+                    _pick_react_option(_eeo_el, p,
+                        "I am not a protected veteran",
+                        "I Am Not a Protected Veteran",
+                        "Not a Protected Veteran",
+                        "I Don't Wish to Answer")
+                elif "sexual orientation" in _eeo_lbl_text or "lgbtq" in _eeo_lbl_text:
+                    _pick_react_option(_eeo_el, p,
+                        "Prefer not to say", "I prefer not to answer",
+                        "I don't wish to answer", "Decline to Self-Identify",
+                        "I prefer not to disclose",
+                        "Heterosexual", "Straight", "Heterosexual/Straight")
+                elif "gdpr" in _fid.lower() or "consent" in _eeo_lbl_text:
+                    pass  # handled below as a checkbox
+            except Exception as _eeo_exc:
+                log.debug("EEO React field %r error: %s", _fid, _eeo_exc)
+
+        # -- GDPR / demographic data consent checkbox ------------------------
+        try:
+            _gdpr = p.query_selector(
+                "input[id*='gdpr_demographic'], input[id*='consent_given'],"
+                "input[id*='demographic_consent']"
+            )
+            if _gdpr and not _gdpr.is_checked():
+                _gdpr.check()
+        except Exception:
+            pass
 
         # -- Unknown required fields → flag for manual review ----------------
         _known_ids = {
@@ -622,6 +875,7 @@ class GreenhouseForm(BaseFormFiller):
             "linkedin", "github", "website", "portfolio", "resume", "cover",
             "twitter", "zip", "postal", "pronouns", "gender", "ethnicity",
             "race", "veteran", "disability", "salary", "compensation",
+            "sexual orientation", "lgbtq", "demographic", "gdpr", "consent",
         }
         for el in p.query_selector_all(
             "input[required], textarea[required], select[required],"
@@ -681,7 +935,7 @@ class GreenhouseForm(BaseFormFiller):
                     continue
 
                 # One more attempt: try to answer via custom question handler
-                if label_text and _answer_custom_question(label_text, el, c, job, page=p):
+                if label_text and _answer_custom_question(label_text, el, c, job, page=p, cfg=self.cfg):
                     continue
 
                 raise NeedsUserInput(f"Unknown required field: '{label_text or identifier}'")
@@ -710,7 +964,7 @@ class GreenhouseForm(BaseFormFiller):
         # the last field fill, then use Playwright's Locator API (not ElementHandle)
         # which correctly handles aria-disabled and synthesizes the full interaction.
         if not self.dry_run:
-            p.wait_for_timeout(300)
+            p.wait_for_timeout(1_200)   # give React time to process all EEO picks
             btn_sel = "#submit_app, button[type='submit']"
             try:
                 # Wait for aria-disabled to clear
@@ -742,25 +996,59 @@ class GreenhouseForm(BaseFormFiller):
             try:
                 invalid_els = p.query_selector_all("[aria-invalid='true']")
                 if invalid_els:
+                    log.info("found %d aria-invalid field(s) after first submit:", len(invalid_els))
                     fixed = 0
                     for inv_el in invalid_els:
                         try:
                             eid = inv_el.get_attribute("id") or ""
+                            el_name = inv_el.get_attribute("name") or ""
                             lbl_el = p.query_selector(f"label[for='{eid}']") if eid else None
                             lbl_text = lbl_el.inner_text().strip() if lbl_el else (
                                 inv_el.get_attribute("aria-label")
                                 or inv_el.get_attribute("placeholder") or ""
                             )
+                            cur_val = ""
+                            try:
+                                cur_val = inv_el.input_value()
+                            except Exception:
+                                pass
+                            log.info(
+                                "  invalid field  id=%r  name=%r  label=%r  current_val=%r",
+                                eid, el_name, lbl_text, cur_val,
+                            )
                             if lbl_text:
-                                if _answer_custom_question(lbl_text, inv_el, c, job, page=p):
+                                answered = _answer_custom_question(lbl_text, inv_el, c, job, page=p, cfg=self.cfg)
+                                log.info("  → _answer_custom_question returned %s", answered)
+                                if answered:
                                     fixed += 1
-                        except Exception:
-                            pass
+                        except Exception as _fix_exc:
+                            log.warning("  error fixing invalid field: %s", _fix_exc)
                     if fixed:
                         p.wait_for_timeout(500)
                         btn_locator.click()
-                        log.info("submit re-clicked after fixing %d validation error(s) for %s @ %s",
-                                 fixed, self.job.title, self.job.company)
+                        log.info("submit re-clicked after fixing %d/%d invalid field(s) for %s @ %s",
+                                 fixed, len(invalid_els), self.job.title, self.job.company)
+                    # Check if still invalid after retry
+                    p.wait_for_timeout(1_500)
+                    still_invalid = p.query_selector_all("[aria-invalid='true']")
+                    if still_invalid:
+                        log.warning("%d field(s) still aria-invalid after retry:", len(still_invalid))
+                        for inv_el in still_invalid:
+                            try:
+                                eid = inv_el.get_attribute("id") or ""
+                                lbl_el = p.query_selector(f"label[for='{eid}']") if eid else None
+                                lbl_text = lbl_el.inner_text().strip() if lbl_el else (
+                                    inv_el.get_attribute("aria-label")
+                                    or inv_el.get_attribute("placeholder") or ""
+                                )
+                                cur_val = ""
+                                try:
+                                    cur_val = inv_el.input_value()
+                                except Exception:
+                                    pass
+                                log.warning("  still-invalid  id=%r  label=%r  val=%r", eid, lbl_text, cur_val)
+                            except Exception:
+                                pass
             except Exception:
                 pass
         else:

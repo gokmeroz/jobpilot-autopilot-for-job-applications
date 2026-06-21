@@ -50,7 +50,7 @@ def _llm_answer(label: str, candidate, job) -> str:
         return ""
 
 
-def _answer_custom_field(el, tag: str, label: str, candidate, job) -> bool:
+def _answer_custom_field(el, tag: str, label: str, candidate, job, cfg: dict | None = None) -> bool:
     """Pattern-match or LLM-answer an unfilled custom required field."""
     ll = label.lower().strip()
 
@@ -144,8 +144,11 @@ def _answer_custom_field(el, tag: str, label: str, candidate, job) -> bool:
         if answer:
             return _fill(answer)
 
-    # Select fallback: first non-placeholder option
-    if tag == "select":
+    # Select fallback is intentionally opt-in. Unknown dropdowns are often
+    # work-auth, eligibility, EEO, or office-location questions where guessing
+    # the first option can submit a wrong answer.
+    allow_select_fallback = bool((cfg or {}).get("apply", {}).get("allow_select_fallback", False))
+    if tag == "select" and allow_select_fallback:
         try:
             opts = el.evaluate("e => Array.from(e.options).map(o => ({v: o.value, t: o.text}))")
             for opt in opts:
@@ -158,12 +161,21 @@ def _answer_custom_field(el, tag: str, label: str, candidate, job) -> bool:
     return False
 
 
-def _fill_by_label(page: Page, label_fragment: str, value: str) -> bool:
+def _fill_by_label(page: Page, label_fragment: str, value: str, slow: bool = False) -> bool:
     """Fill the input associated with a label containing label_fragment."""
+    import time, random
     try:
         el = page.get_by_label(label_fragment, exact=False)
         if el.count() > 0:
-            el.first.fill(value)
+            target = el.first
+            target.click()
+            target.fill("")
+            if slow:
+                # Human-like typing with random inter-key delay to bypass bot detection
+                target.type(value, delay=random.randint(30, 80))
+                time.sleep(random.uniform(0.1, 0.3))
+            else:
+                target.fill(value)
             return True
     except Exception:
         pass
@@ -233,25 +245,55 @@ class AshbyForm(BaseFormFiller):
         # -- Identity --------------------------------------------------------
         # Some Ashby forms use separate "First name" / "Last name" fields;
         # others (e.g. Linear) use a single "Name" field.
-        filled_first = _fill_by_label(p, "First name", c.first_name)
-        filled_last = _fill_by_label(p, "Last name", c.last_name)
+        import time as _time, random as _random
+
+        filled_first = _fill_by_label(p, "First name", c.first_name, slow=True)
+        filled_last = _fill_by_label(p, "Last name", c.last_name, slow=True)
         if not filled_first and not filled_last:
             try:
                 # ^name matches "Name" but not "First name" / "Last name"
                 el = p.get_by_label(_re.compile(r"^name", _re.IGNORECASE))
                 if el.count() > 0:
-                    el.first.fill(f"{c.first_name} {c.last_name}")
+                    el.first.click()
+                    el.first.fill("")
+                    el.first.type(f"{c.first_name} {c.last_name}", delay=_random.randint(30, 80))
             except Exception:
                 pass
 
-        _fill_by_label(p, "Email", c.email)
-        _fill_by_label(p, "Phone", c.phone)
+        _time.sleep(_random.uniform(0.3, 0.6))
+        _fill_by_label(p, "Email", c.email, slow=True)
+        _time.sleep(_random.uniform(0.2, 0.5))
+        _fill_by_label(p, "Phone", c.phone, slow=True)
 
         # -- Location --------------------------------------------------------
-        _fill_by_label(p, "Location", c.location)
-        _fill_by_label(p, "City", "Istanbul")
+        # "Current location" → candidate's home city
+        # "Which location are you applying for?" / "Preferred location" → job's location
+        _time.sleep(_random.uniform(0.2, 0.4))
+        _fill_by_label(p, "Current location", c.location, slow=True)
+        _fill_by_label(p, "City", "Istanbul", slow=True)
+        _job_location = job.location or job.country or c.location
+        _fill_by_label(p, "Which location", _job_location)
+        _fill_by_label(p, "Preferred location", _job_location)
+        # Ashby sometimes uses div/span labels — find by proximity to label text via JS
+        try:
+            p.evaluate("""(val) => {
+                const labels = document.querySelectorAll('label, span, div, p');
+                for (const lbl of labels) {
+                    if (/which location|preferred location/i.test(lbl.innerText?.trim())) {
+                        const container = lbl.closest('[class]') || lbl.parentElement;
+                        const inp = container?.querySelector('input[type="text"]');
+                        if (inp) { inp.focus(); inp.value = val;
+                            inp.dispatchEvent(new Event('input', {bubbles:true}));
+                            inp.dispatchEvent(new Event('change', {bubbles:true})); }
+                        break;
+                    }
+                }
+            }""", _job_location)
+        except Exception:
+            pass
 
         # -- Links -----------------------------------------------------------
+        _time.sleep(_random.uniform(0.3, 0.6))
         _fill_by_label(p, "LinkedIn", c.linkedin_url)
         _fill_by_label(p, "GitHub", c.github_url)
         _fill_by_label(p, "Twitter", c.twitter_url)
@@ -317,16 +359,51 @@ class AshbyForm(BaseFormFiller):
         except Exception:
             pass
 
-        # -- Required checkboxes (consent / GDPR) ----------------------------
-        for cb in p.locator("input[type='checkbox'][required]").all():
+        # -- Consent / acknowledgement checkboxes and buttons -------------------
+        _consent_text = _re.compile(
+            r"i agree|i accept|i understand|i acknowledge|i confirm|i consent"
+            r"|i have read|agree to|accept the|terms|privacy policy|gdpr",
+            _re.IGNORECASE,
+        )
+        # Required checkboxes
+        for cb in p.locator("input[type='checkbox']").all():
             try:
-                if not cb.is_checked():
-                    cb.check()
+                if cb.is_checked():
+                    continue
+                is_required = cb.get_attribute("required") is not None or cb.get_attribute("aria-required") == "true"
+                cb_id = cb.get_attribute("id") or ""
+                label_text = ""
+                if cb_id:
+                    lbl = p.locator(f"label[for='{cb_id}']")
+                    if lbl.count():
+                        label_text = lbl.first.inner_text()
+                if not label_text:
+                    label_text = cb.get_attribute("aria-label") or ""
+                # Ashby often has no <label for="...">; read parent/sibling text instead
+                if not label_text:
+                    try:
+                        label_text = cb.evaluate(
+                            "el => el.closest('label')?.innerText "
+                            "|| el.parentElement?.innerText "
+                            "|| el.parentElement?.parentElement?.innerText || ''"
+                        )
+                    except Exception:
+                        pass
+                if is_required or _consent_text.search(label_text):
+                    try:
+                        cb.check()
+                    except Exception:
+                        cb.click()
             except Exception:
-                try:
-                    cb.click()
-                except Exception:
-                    pass
+                pass
+        # Button-style consent (e.g. "I agree", "I understand", "Accept")
+        for btn in p.locator("button").all():
+            try:
+                btn_text = btn.inner_text().strip()
+                if _consent_text.search(btn_text):
+                    btn.click()
+            except Exception:
+                pass
 
         # -- EEO (best-effort) -----------------------------------------------
         for gender_label in ["gender", "Gender identity"]:
@@ -414,7 +491,7 @@ class AshbyForm(BaseFormFiller):
                 if any(k in field_name for k in _known):
                     continue  # already handled above
 
-                answered = _answer_custom_field(el, tag, label_text or field_name, c, job)
+                answered = _answer_custom_field(el, tag, label_text or field_name, c, job, self.cfg)
                 if not answered:
                     raise NeedsUserInput(f"Unknown required field: '{label_text or field_name}'")
             except NeedsUserInput:
@@ -423,4 +500,16 @@ class AshbyForm(BaseFormFiller):
                 pass
 
         # -- Submit ----------------------------------------------------------
-        self.submit("button[type='submit'], button[data-button-type='submit']")
+        # Brief human-like pause before clicking submit (helps bypass spam detection)
+        import time as _time, random as _random
+        _time.sleep(_random.uniform(1.5, 3.0))
+
+        # Ashby uses a plain <button> with no type='submit'; try specific then broad
+        _submit_sel = (
+            "button[type='submit'], "
+            "button[data-button-type='submit'], "
+            "button:has-text('Submit Application'), "
+            "button:has-text('Submit'), "
+            "button:has-text('Apply')"
+        )
+        self.submit(_submit_sel)

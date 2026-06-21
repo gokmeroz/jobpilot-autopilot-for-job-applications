@@ -44,12 +44,13 @@ class BaseFormFiller(ABC):
     """
 
     def __init__(self, page: Page, job: Job, candidate: CandidateData, cfg: dict) -> None:
-        self.page      = page
-        self.job       = job
-        self.candidate = candidate
-        self.cfg       = cfg
+        self.page        = page
+        self.job         = job
+        self.candidate   = candidate
+        self.cfg         = cfg
         self.dry_run: bool = cfg["apply"].get("dry_run", False)
-        self._cl_text: str = ""  # pre-computed by prefetch() before page.goto()
+        self._cl_text: str = ""   # pre-computed by prefetch() before page.goto()
+        self._parent_page: Page | None = None  # set when form is inside an iframe
 
     # -- abstract ------------------------------------------------------------
 
@@ -86,7 +87,10 @@ class BaseFormFiller(ABC):
     def upload(self, selector: str, path: Path) -> bool:
         """Upload a file. Returns False if element not found."""
         try:
-            el = self.page.wait_for_selector(selector, timeout=FILL_TIMEOUT)
+            # state="attached" — new Greenhouse boards hide the <input type="file">
+            # with class="visually-hidden".  Default state="visible" would time out;
+            # set_input_files() works on hidden inputs via the change event.
+            el = self.page.wait_for_selector(selector, timeout=FILL_TIMEOUT, state="attached")
             if el:
                 el.set_input_files(str(path))
                 return True
@@ -129,7 +133,10 @@ class BaseFormFiller(ABC):
     def screenshot(self, name: str, evidence_dir: Path) -> None:
         evidence_dir.mkdir(parents=True, exist_ok=True)
         path = evidence_dir / f"{name}.png"
-        self.page.screenshot(path=str(path), full_page=True)
+        # When form is inside an iframe, self.page is a Frame (no .screenshot()).
+        # Use the original parent page which captures the full viewport including frames.
+        target = self._parent_page or self.page
+        target.screenshot(path=str(path), full_page=True)
         log.debug("screenshot → %s", path.name)
 
     def submit(self, selector: str) -> None:
