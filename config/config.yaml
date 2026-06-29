@@ -21,7 +21,7 @@ score:
 
 apply:
   dry_run: false  # true = fill + screenshot, never click submit
-  headless: false
+  headless: true
   max_attempts: 2
   allow_select_fallback: true  # true = choose first non-placeholder option for unknown dropdowns
   resume_file: assets/resume/resume.pdf
