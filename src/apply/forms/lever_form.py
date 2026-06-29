@@ -14,6 +14,12 @@ log = logging.getLogger(__name__)
 
 class LeverForm(BaseFormFiller):
 
+    def prefetch(self) -> None:
+        short = self.job.cover_letter == self.cfg["apply"]["cover_letter_short"]
+        self._cl_text = self.candidate.cover_letter_text(
+            self.job.title, self.job.company, short=short, description=self.job.description
+        )
+
     def fill_form(self) -> None:
         c = self.candidate
         job = self.job
@@ -66,8 +72,7 @@ class LeverForm(BaseFormFiller):
             log.warning("lever: could not upload resume for %s @ %s", job.title, job.company)
 
         # -- Cover letter ----------------------------------------------------
-        short = job.cover_letter == self.cfg["apply"]["cover_letter_short"]
-        cl_text = c.cover_letter_text(job.title, job.company, short=short, description=job.description)
+        cl_text = self._cl_text or c.cover_letter_text(job.title, job.company)
         self.fill_first(
             [
                 "textarea[name='comments']",
