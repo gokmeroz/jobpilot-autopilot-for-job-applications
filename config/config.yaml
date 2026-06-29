@@ -1,4 +1,4 @@
-mode: full_auto # review_first | full_auto
+mode: review_first # review_first | full_auto
 
 markets:
   countries: [DE, NL, IE, GB, TR]
