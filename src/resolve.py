@@ -53,6 +53,21 @@ _EASY_APPLY_SELECTORS = [
 ]
 
 
+_STEALTH_JS = """
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    window.chrome = { runtime: {} };
+"""
+
+_AUTH_WALL_PATTERNS = (
+    "linkedin.com/login",
+    "linkedin.com/authwall",
+    "linkedin.com/uas/login",
+    "linkedin.com/checkpoint",
+)
+
+
 def _resolve_with_playwright(linkedin_url: str) -> str | None:
     """
     Open a LinkedIn job page headlessly and extract the external apply URL.
@@ -60,23 +75,47 @@ def _resolve_with_playwright(linkedin_url: str) -> str | None:
     """
     from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
+    try:
+        from playwright_stealth import stealth_sync as _stealth_sync
+        _has_stealth = True
+    except ImportError:
+        _has_stealth = False
+
     clean = _clean_linkedin_url(linkedin_url)
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        browser = pw.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
         ctx = browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
+                "Chrome/136.0.0.0 Safari/537.36"
             ),
             locale="en-US",
+            viewport={"width": 1280, "height": 800},
+            extra_http_headers={
+                "Accept-Language": "en-US,en;q=0.9",
+                "sec-ch-ua": '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": '"macOS"',
+            },
         )
         page = ctx.new_page()
+        if _has_stealth:
+            _stealth_sync(page)
+        page.add_init_script(_STEALTH_JS)
         try:
             page.goto(clean, timeout=20_000, wait_until="domcontentloaded")
             # Give JS a moment to hydrate
             page.wait_for_timeout(2_000)
+
+            # Bail early if LinkedIn redirected to auth wall / login — no point continuing
+            if any(pat in page.url for pat in _AUTH_WALL_PATTERNS):
+                log.debug("resolve: LinkedIn auth wall detected (%s) — skipping %s", page.url, clean)
+                return None
 
             # Check for Easy Apply first — if present, no external URL exists
             for sel in _EASY_APPLY_SELECTORS:

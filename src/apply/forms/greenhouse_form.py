@@ -868,6 +868,7 @@ class GreenhouseForm(BaseFormFiller):
         # from a prior field, causing click-to-open to fail silently.
         p.wait_for_timeout(600)
         _checked_groups: set = set()   # tracks which checkbox groups already have a pick
+        _group_question_cache: dict[str, str] = {}  # group_base → fieldset legend text (cached)
         for label_el in p.query_selector_all("label[for^='question_']"):
             try:
                 q_id = label_el.get_attribute("for") or ""
@@ -900,6 +901,66 @@ class GreenhouseForm(BaseFormFiller):
                             label_el.click()
                         except Exception:
                             pass
+                    elif group_base not in _checked_groups:
+                        # Context-aware routing: look up the group question via fieldset legend
+                        if group_base not in _group_question_cache:
+                            try:
+                                _gq = p.evaluate(
+                                    "(qid) => {"
+                                    "  const l = document.querySelector(`label[for='${qid}']`);"
+                                    "  if (!l) return '';"
+                                    "  const fs = l.closest('fieldset');"
+                                    "  if (!fs) return '';"
+                                    "  const lg = fs.querySelector('legend');"
+                                    "  return lg ? lg.innerText.trim() : '';"
+                                    "}",
+                                    q_id,
+                                )
+                                _group_question_cache[group_base] = (_gq or "").lower()
+                            except Exception:
+                                _group_question_cache[group_base] = ""
+
+                        gq = _group_question_cache.get(group_base, "")
+                        _want: str | None = None
+
+                        if gq and re.search(
+                            r"authoris?ed.*(work|employ)|right to work|eligible to work"
+                            r"|work authori[sz]ation|legally.*work|permitted.*work",
+                            gq,
+                        ):
+                            _country_upper = (job.country or "").upper()
+                            if _country_upper == "US":
+                                _want = "yes" if c.authorized_us else "no"
+                            elif _country_upper in ("DE", "NL", "IE", "AT"):
+                                _want = "yes" if c.authorized_eu else "no"
+                            elif _country_upper in ("GB", "UK"):
+                                _want = "yes" if c.authorized_uk else "no"
+                            else:
+                                _want = "no"
+
+                        elif gq and re.search(
+                            r"visa sponsor|require sponsor|need sponsor|sponsorship required"
+                            r"|require.*work.*visa|need.*work.*visa|will.*require.*visa",
+                            gq,
+                        ):
+                            _needs = c.needs_sponsorship(job.country)
+                            _want = "yes" if _needs else "no"
+
+                        elif gq and re.search(
+                            r"relocation|willing.*relocat|open.*relocat|relocat.*for", gq
+                        ):
+                            _want = "yes"
+
+                        if _want is not None and option_lbl.startswith(_want):
+                            try:
+                                label_el.click()
+                                _checked_groups.add(group_base)
+                                log.debug(
+                                    "radio group %r (q=%r): clicked %r",
+                                    group_base, gq[:60], option_lbl,
+                                )
+                            except Exception:
+                                pass
                     # All other options (Twitter, Glassdoor, Indeed, Other…) → skip
                     continue
                 field_el = p.query_selector(f"#{q_id}")
