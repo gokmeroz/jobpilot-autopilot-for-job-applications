@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 from src.config import load
 from src.discover.scrapers.apify_runner import run_actor
 from src.models import Job, RemoteType
-from src.normalize import build_job_key, country_from_location, infer_remote
+from src.normalize import _ATS_DOMAINS, build_job_key, country_from_location, fingerprint_ats as _fingerprint_ats, infer_remote
 
 log = logging.getLogger(__name__)
 
@@ -56,18 +56,8 @@ _SEARCH_MATRIX: list[tuple[str, str]] = [
 _LI_BASE = "https://www.linkedin.com/jobs/search/"
 _LI_PARAMS = "f_TPR=r86400&f_E=2%2C3&f_JT=F"
 
-# ATS fingerprinting — apply URL domain → ats name
-_ATS_MAP: dict[str, str] = {
-    "greenhouse.io":      "greenhouse",
-    "lever.co":           "lever",
-    "ashbyhq.com":        "ashby",
-    "workable.com":       "workable",
-    "smartrecruiters.com":"smartrecruiters",
-    "myworkdayjobs.com":  "workday",
-    "jobvite.com":        "jobvite",
-    "icims.com":          "icims",
-    "taleo.net":          "taleo",
-}
+# Derived from normalize._ATS_DOMAINS so it stays in sync with all registered fillers.
+_ATS_MAP = _ATS_DOMAINS
 
 _VISA_RE = re.compile(
     r"\b(visa\s+sponsor|relocation\s+(support|assistance|package)|work\s+permit|"
@@ -135,16 +125,6 @@ def _get(raw: dict, *keys: str, default: str = "") -> str:
             return val.strip()
     return default
 
-
-def _fingerprint_ats(url: str) -> str | None:
-    try:
-        host = urlparse(url).netloc.lower()
-        for domain, ats in _ATS_MAP.items():
-            if domain in host:
-                return ats
-    except Exception:
-        pass
-    return None
 
 
 def _parse_remote_type(raw: dict, location: str, description: str) -> RemoteType:
