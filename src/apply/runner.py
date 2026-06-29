@@ -21,6 +21,7 @@ from src.apply.candidate import load_candidate
 from src.apply.forms.ashby_form import AshbyForm
 from src.apply.forms.greenhouse_form import GreenhouseForm
 from src.apply.forms.lever_form import LeverForm
+from src.apply.forms.personio_form import PersonioForm
 from src.apply.forms.smartrecruiters_form import SmartRecruitersForm
 from src.apply.forms.workable_form import WorkableForm
 from src.config import ROOT, load
@@ -90,6 +91,7 @@ _FILLERS: dict[str, type[BaseFormFiller]] = {
     "ashby":           AshbyForm,
     "workable":        WorkableForm,
     "smartrecruiters": SmartRecruitersForm,
+    "personio":        PersonioForm,
 }
 
 
