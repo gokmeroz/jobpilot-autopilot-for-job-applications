@@ -23,6 +23,7 @@ from src.apply.forms.greenhouse_form import GreenhouseForm
 from src.apply.forms.lever_form import LeverForm
 from src.apply.forms.personio_form import PersonioForm
 from src.apply.forms.smartrecruiters_form import SmartRecruitersForm
+from src.apply.forms.teamtailor_form import TeamtailorForm
 from src.apply.forms.workable_form import WorkableForm
 from src.config import ROOT, load
 from src.models import Job, Status
@@ -92,6 +93,7 @@ _FILLERS: dict[str, type[BaseFormFiller]] = {
     "workable":        WorkableForm,
     "smartrecruiters": SmartRecruitersForm,
     "personio":        PersonioForm,
+    "teamtailor":      TeamtailorForm,
 }
 
 
