@@ -19,12 +19,16 @@ except ImportError:
 from src.apply.base import ApplicationResult, BaseFormFiller, NeedsUserInput
 from src.apply.candidate import load_candidate
 from src.apply.forms.ashby_form import AshbyForm
+from src.apply.forms.bamboohr_form import BambooHRForm
 from src.apply.forms.greenhouse_form import GreenhouseForm
 from src.apply.forms.lever_form import LeverForm
 from src.apply.forms.personio_form import PersonioForm
+from src.apply.forms.recruitee_form import RecruiteeForm
 from src.apply.forms.smartrecruiters_form import SmartRecruitersForm
 from src.apply.forms.teamtailor_form import TeamtailorForm
+from src.apply.forms.wellfound_form import WellfoundForm
 from src.apply.forms.workable_form import WorkableForm
+from src.apply.forms.workday_form import WorkdayForm
 from src.config import ROOT, load
 from src.models import Job, Status
 
@@ -94,6 +98,10 @@ _FILLERS: dict[str, type[BaseFormFiller]] = {
     "smartrecruiters": SmartRecruitersForm,
     "personio":        PersonioForm,
     "teamtailor":      TeamtailorForm,
+    "recruitee":       RecruiteeForm,
+    "bamboohr":        BambooHRForm,
+    "wellfound":       WellfoundForm,
+    "workday":         WorkdayForm,
 }
 
 
