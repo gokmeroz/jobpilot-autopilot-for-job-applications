@@ -305,10 +305,24 @@ class AshbyForm(BaseFormFiller):
         # -- Resume ----------------------------------------------------------
         _upload_by_label(p, "Resume", str(c.resume_path))
 
-        # -- Cover letter ----------------------------------------------------
+        # -- Cover letter (file upload takes precedence over textarea) -------
         cl_text = self._cl_text or c.cover_letter_text(job.title, job.company)
-        if not _fill_by_label(p, "Cover letter", cl_text):
-            _fill_by_label(p, "Additional information", cl_text)
+        _cl_uploaded = False
+        try:
+            _cl_loc = p.get_by_label("Cover letter", exact=False)
+            if _cl_loc.count() > 0:
+                _cl_el = _cl_loc.first
+                _is_file = _cl_el.evaluate("e => e.type === 'file'")
+                if _is_file:
+                    _cl_pdf = self.generate_cover_letter_pdf()
+                    _cl_el.set_input_files(str(_cl_pdf))
+                    _cl_uploaded = True
+                    log.info("uploaded cover letter PDF for %s @ %s", job.title, job.company)
+        except Exception as _exc:
+            log.warning("cover letter detection failed: %s", _exc)
+        if not _cl_uploaded:
+            if not _fill_by_label(p, "Cover letter", cl_text):
+                _fill_by_label(p, "Additional information", cl_text)
 
         # -- Work authorization (select dropdowns) ---------------------------
         _wa_rules = [

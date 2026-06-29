@@ -303,6 +303,7 @@ def _run_browser(
 
         finally:
             browser.close()
+            filler.cleanup_cover_letter_pdf()
 
 
 def apply_batch(jobs: list[Job], run_id: str) -> list[ApplicationResult]:

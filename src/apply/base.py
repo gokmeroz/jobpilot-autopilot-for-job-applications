@@ -52,7 +52,8 @@ class BaseFormFiller(ABC):
         self.cfg         = cfg
         self.dry_run: bool = cfg["apply"].get("dry_run", False)
         self.human_like: bool = cfg["apply"].get("human_like", True)
-        self._cl_text: str = ""   # pre-computed by prefetch() before page.goto()
+        self._cl_text: str = ""          # pre-computed by prefetch() before page.goto()
+        self._cl_pdf_path: Path | None = None  # temp PDF; deleted after submission
         self._parent_page: Page | None = None  # set when form is inside an iframe
 
     # -- abstract ------------------------------------------------------------
@@ -68,6 +69,23 @@ class BaseFormFiller(ABC):
         """
 
     # -- helpers -------------------------------------------------------------
+
+    def generate_cover_letter_pdf(self) -> Path:
+        """Return path to a temporary PDF of the cover letter, generating it on first call."""
+        if self._cl_pdf_path and self._cl_pdf_path.exists():
+            return self._cl_pdf_path
+        from src.apply.cover_letter_pdf import generate_pdf
+        cl_text = self._cl_text or self.candidate.cover_letter_text(
+            self.job.title, self.job.company
+        )
+        self._cl_pdf_path = generate_pdf(cl_text)
+        return self._cl_pdf_path
+
+    def cleanup_cover_letter_pdf(self) -> None:
+        """Delete the temporary cover letter PDF. Called automatically by the runner."""
+        from src.apply.cover_letter_pdf import delete_pdf
+        delete_pdf(self._cl_pdf_path)
+        self._cl_pdf_path = None
 
     def human_delay(self, min_s: float = 0.15, max_s: float = 0.5) -> None:
         """Short randomised pause between field interactions."""

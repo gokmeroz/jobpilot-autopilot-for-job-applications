@@ -261,7 +261,19 @@ def _answer_custom_question(label: str, el, candidate, job, page=None, cfg: dict
             except Exception:
                 return False
 
-    # --- File attach (Mercury-style cover letter or extra doc upload) ---
+    # --- Cover letter file attachment ------------------------------------
+    if re.search(r"cover.?letter|motivation.*letter|letter.*motivation", ll):
+        if el_type == "file":
+            # PDF path is set by the filler when it processes the custom questions loop;
+            # if it reaches here it means the loop's early-exit didn't fire — upload resume.
+            try:
+                el.set_input_files(str(candidate.resume_path))
+                return True
+            except Exception:
+                pass
+        return False
+
+    # --- File attach (extra doc upload) ---
     if re.search(r"\battach\b|attach.*file|attach.*doc|upload.*doc", ll):
         if el_type == "file":
             try:
@@ -808,14 +820,31 @@ class GreenhouseForm(BaseFormFiller):
             # Some Greenhouse boards use a different file input
             self.upload("input[name='resume']", c.resume_path)
 
-        # -- Cover letter ----------------------------------------------------
+        # -- Cover letter (file upload takes precedence over textarea) -------
         cl_text = self._cl_text or c.cover_letter_text(job.title, job.company)
+        _cl_file_uploaded = False
+        for _cl_sel in [
+            "input[type='file'][name*='cover']",
+            "input[type='file'][id*='cover']",
+            "input[type='file'][aria-label*='cover letter' i]",
+        ]:
+            try:
+                _cl_el = p.query_selector(_cl_sel)
+                if _cl_el:
+                    _cl_pdf = self.generate_cover_letter_pdf()
+                    _cl_el.set_input_files(str(_cl_pdf))
+                    _cl_file_uploaded = True
+                    log.info("uploaded cover letter PDF for %s @ %s", job.title, job.company)
+                    break
+            except Exception as _exc:
+                log.warning("cover letter PDF file upload failed (%s): %s", _cl_sel, _exc)
 
-        self.fill_first([
-            "#cover_letter_text",
-            "textarea[name='job_application[cover_letter]']",
-            "textarea[aria-label*='cover letter' i]",
-        ], cl_text)
+        if not _cl_file_uploaded:
+            self.fill_first([
+                "#cover_letter_text",
+                "textarea[name='job_application[cover_letter]']",
+                "textarea[aria-label*='cover letter' i]",
+            ], cl_text)
 
         # -- Links -----------------------------------------------------------
         self.fill_first(
@@ -875,6 +904,16 @@ class GreenhouseForm(BaseFormFiller):
                     continue
                 field_el = p.query_selector(f"#{q_id}")
                 if not field_el:
+                    continue
+                # Cover letter file upload via custom question (some ATS embed it here)
+                _fq_type = (field_el.get_attribute("type") or "text").lower()
+                if _fq_type == "file" and re.search(r"cover.?letter|motivation.*letter", label_text, re.IGNORECASE):
+                    try:
+                        _cl_pdf = self.generate_cover_letter_pdf()
+                        field_el.set_input_files(str(_cl_pdf))
+                        log.info("uploaded cover letter PDF via custom question: %r", label_text)
+                    except Exception as _pdf_exc:
+                        log.warning("cover letter PDF upload failed for %r: %s", label_text, _pdf_exc)
                     continue
                 # Skip if already filled
                 try:
