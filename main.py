@@ -311,18 +311,15 @@ def _parse_review_file(path: str):
     from pathlib import Path as _Path
     from urllib.parse import urlparse as _urlparse
 
+    from src.apply.runner import _FILLERS
     from src.config import load as _load_cfg
+    from src.normalize import _ATS_DOMAINS as _ALL_ATS_DOMAINS
     from src.models import Job, RemoteType, Route, Score, Status
     from src.normalize import build_job_key
 
-    _ATS_DOMAINS: dict[str, str] = {
-        "greenhouse.io": "greenhouse",
-        "lever.co": "lever",
-        "ashbyhq.com": "ashby",
-        "workable.com": "workable",
-        "smartrecruiters.com": "smartrecruiters",
-    }
-    _KNOWN_ATS = set(_ATS_DOMAINS.values())
+    # Derived from runner._FILLERS so --resume-review routes all supported ATS
+    # platforms to auto-apply, not just the original 5.
+    _KNOWN_ATS: frozenset[str] = frozenset(_FILLERS.keys())
     _REMOTE_MAP: dict[str, RemoteType] = {
         "remote": RemoteType.remote,
         "hybrid": RemoteType.hybrid,
@@ -333,7 +330,7 @@ def _parse_review_file(path: str):
     def _ats(url: str) -> str | None:
         try:
             host = _urlparse(url).netloc.lower()
-            for domain, name in _ATS_DOMAINS.items():
+            for domain, name in _ALL_ATS_DOMAINS.items():
                 if domain in host:
                     return name
         except Exception:
