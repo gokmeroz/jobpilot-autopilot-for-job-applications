@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src import gate, ledger
-from src.apply.runner import apply_batch
+from src.apply.runner import apply_batch, _FILLERS
 from src.config import ROOT, load
 from src.models import Job, Route, Status
 from src.score import score_batch
@@ -54,7 +54,8 @@ class PipelineResult:
 # Plan stage
 # ---------------------------------------------------------------------------
 
-_DEFAULT_AUTO_ATS = {"greenhouse", "lever", "ashby", "workable", "smartrecruiters"}  # must match _FILLERS keys in runner.py
+# Derived from runner._FILLERS so it can never go stale as new fillers are added.
+_DEFAULT_AUTO_ATS: frozenset[str] = frozenset(_FILLERS.keys())
 
 # Sources that strongly suggest a startup / small company → short cover letter
 _STARTUP_SOURCES = {"wellfound", "ycombinator", "yc", "weworkremotely"}
