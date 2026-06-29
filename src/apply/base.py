@@ -87,6 +87,313 @@ class BaseFormFiller(ABC):
         delete_pdf(self._cl_pdf_path)
         self._cl_pdf_path = None
 
+    # -- multi-step form navigation ------------------------------------------
+
+    # Button text patterns that indicate a "Next" pagination step (not submit).
+    _NEXT_BTN_TEXTS = (
+        "next step",
+        "save and continue",
+        "continue to next",
+        "continue",
+        "next",
+    )
+    # Text substrings that mark a final submit button — exclude from Next detection.
+    _SUBMIT_HINTS = (
+        "submit",
+        "apply now",
+        "apply",
+        "send application",
+        "complete application",
+        "finish",
+    )
+
+    def _walk_steps(self) -> None:
+        """Navigate through paginated form steps, filling each new step's fields.
+
+        Call this just before the submit block in fill_form(). On each step it
+        fills cover letter, required fields, and consent checkboxes. Returns
+        when no more Next/Continue buttons are found (final step is ready to submit).
+        """
+        p = self.page
+        for _step in range(8):  # safety cap — no real form has >8 steps
+            # Find a visible "Next" button that is not a submit
+            next_btn = None
+            for _text in self._NEXT_BTN_TEXTS:
+                try:
+                    btn = p.locator(f"button:has-text('{_text}')").first
+                    if btn.count() > 0 and btn.is_visible(timeout=300):
+                        txt = btn.inner_text().strip().lower()
+                        if not any(h in txt for h in self._SUBMIT_HINTS):
+                            next_btn = btn
+                            break
+                except Exception:
+                    continue
+
+            if next_btn is None:
+                break
+
+            # Click Next and wait for the new step to settle
+            self.human_delay(0.2, 0.5)
+            next_btn.click()
+            log.info(
+                "multi-step: advancing to step %d — %s @ %s",
+                _step + 2, self.job.title, self.job.company,
+            )
+            try:
+                p.wait_for_load_state("networkidle", timeout=8_000)
+            except Exception:
+                p.wait_for_timeout(1_500)
+
+            # Handle fields that appeared on this new step
+            self._handle_step()
+
+    def _handle_step(self) -> None:
+        """Fill cover letter, required fields, and consent checkboxes on the current step."""
+        self._fill_step_cover_letter()
+        self._fill_step_required_fields()
+        self._fill_step_checkboxes()
+
+    def _fill_step_cover_letter(self) -> bool:
+        """Detect and upload/fill a cover letter on the current page. Returns True if found."""
+        import re as _re
+        p = self.page
+        c = self.candidate
+
+        # File input selectors
+        for _sel in (
+            "input[type='file'][name*='cover']",
+            "input[type='file'][id*='cover']",
+            "input[type='file'][aria-label*='cover letter' i]",
+            "input[type='file'][aria-label*='motivation' i]",
+        ):
+            try:
+                el = p.query_selector(_sel)
+                if el:
+                    pdf = self.generate_cover_letter_pdf()
+                    el.set_input_files(str(pdf))
+                    log.info("step: uploaded cover letter PDF (%s)", _sel)
+                    return True
+            except Exception as exc:
+                log.warning("step: CL PDF upload failed (%s): %s", _sel, exc)
+
+        # Label-based detection (Ashby / generic React forms)
+        for _frag in ("Cover letter", "Motivation letter"):
+            try:
+                loc = p.get_by_label(_frag, exact=False)
+                if loc.count() > 0:
+                    el = loc.first
+                    is_file = el.evaluate("e => e.type === 'file'")
+                    if is_file:
+                        pdf = self.generate_cover_letter_pdf()
+                        el.set_input_files(str(pdf))
+                        log.info("step: uploaded cover letter PDF via label %r", _frag)
+                        return True
+                    cl_text = self._cl_text or c.cover_letter_text(self.job.title, self.job.company)
+                    el.fill(cl_text)
+                    log.info("step: filled cover letter text via label %r", _frag)
+                    return True
+            except Exception as exc:
+                log.warning("step: CL label %r failed: %s", _frag, exc)
+
+        # Textarea name/id/aria selectors
+        cl_text = self._cl_text or c.cover_letter_text(self.job.title, self.job.company)
+        return self.fill_first([
+            "#cover_letter_text",
+            "textarea[name*='cover']",
+            "textarea[id*='cover']",
+            "textarea[name*='coverLetter']",
+            "textarea[id*='coverLetter' i]",
+            "textarea[aria-label*='cover letter' i]",
+            "textarea[placeholder*='cover letter' i]",
+            "textarea[name*='motivation']",
+            "textarea[aria-label*='motivation' i]",
+            "textarea[placeholder*='motivation' i]",
+        ], cl_text)
+
+    def _fill_step_required_fields(self) -> None:
+        """Fill visible required text/select fields on the current step.
+
+        Uses pattern matching for common question types and LLM fallback for
+        open-ended text fields. Fields already handled by the main fill_form()
+        pass are skipped via the known-label allow-list.
+        """
+        import re as _re
+        p = self.page
+        c = self.candidate
+
+        _KNOWN = {
+            "name", "email", "phone", "linkedin", "github", "website",
+            "portfolio", "resume", "cover", "location", "city", "country",
+            "twitter", "zip", "postal", "pronouns", "gender", "ethnicity",
+            "race", "veteran", "disability", "salary", "compensation",
+            "demographic", "gdpr", "consent",
+        }
+
+        for el in p.locator(
+            "input[required], textarea[required], select[required],"
+            "input[aria-required='true'], textarea[aria-required='true'],"
+            "select[aria-required='true']"
+        ).all():
+            try:
+                tag = el.evaluate("e => e.tagName.toLowerCase()")
+                if tag not in ("input", "textarea", "select"):
+                    continue
+                el_type = (el.get_attribute("type") or "text").lower()
+                if el_type in ("file", "checkbox", "radio", "hidden"):
+                    continue
+                if tag != "select":
+                    try:
+                        if el.input_value():
+                            continue
+                    except Exception:
+                        continue
+
+                # Resolve label
+                el_id = el.get_attribute("id") or ""
+                label_text = ""
+                if el_id:
+                    lbl = p.locator(f"label[for='{el_id}']")
+                    if lbl.count():
+                        label_text = lbl.first.inner_text()
+                if not label_text:
+                    label_text = (
+                        el.get_attribute("aria-label")
+                        or el.get_attribute("placeholder")
+                        or el.get_attribute("name")
+                        or ""
+                    )
+                ll = label_text.lower()
+
+                if any(k in ll for k in _KNOWN):
+                    continue
+
+                # Pattern-matched common question types
+                answered = False
+                _rules = [
+                    (r"how did you hear|referral|where did you (find|learn|hear)",
+                     "Job board", "Job board"),
+                    (r"notice period|when can you start|available to start|earliest start",
+                     "Immediately available", "Immediately"),
+                    (r"relocation|willing to relocate|open to reloc",
+                     "Yes", "Yes"),
+                    (r"open to remote|work remotely|remote work",
+                     "Yes", "Yes"),
+                ]
+                for pat, text_ans, select_ans in _rules:
+                    if _re.search(pat, ll):
+                        try:
+                            if tag == "select":
+                                el.select_option(label=select_ans)
+                            else:
+                                el.fill(text_ans)
+                            answered = True
+                            break
+                        except Exception:
+                            pass
+
+                if not answered and _re.search(
+                    r"visa.*sponsor|require.*sponsor|need.*sponsor|sponsorship", ll
+                ):
+                    ans = "Yes" if c.needs_sponsorship(self.job.country) else "No"
+                    try:
+                        if tag == "select":
+                            el.select_option(label=ans)
+                        else:
+                            el.fill(ans)
+                        answered = True
+                    except Exception:
+                        pass
+
+                if not answered and _re.search(
+                    r"authoris?ed.*work|right to work|work.*authoriz|eligible.*work", ll
+                ):
+                    try:
+                        if tag == "select":
+                            el.select_option(label="No")
+                        else:
+                            el.fill("No")
+                        answered = True
+                    except Exception:
+                        pass
+
+                # LLM fallback for open-ended text/textarea
+                if not answered and tag in ("input", "textarea") and label_text:
+                    answered = bool(self._llm_answer_field(label_text, el))
+
+            except Exception:
+                pass
+
+    def _fill_step_checkboxes(self) -> None:
+        """Check required or consent-style checkboxes visible on the current step."""
+        import re as _re
+        p = self.page
+        _CONSENT = _re.compile(
+            r"i agree|i accept|i understand|i acknowledge|i confirm|i consent"
+            r"|agree to|accept the|terms|privacy policy|gdpr|data.*process",
+            _re.IGNORECASE,
+        )
+        for cb in p.locator("input[type='checkbox']").all():
+            try:
+                if cb.is_checked():
+                    continue
+                is_required = (
+                    cb.get_attribute("required") is not None
+                    or cb.get_attribute("aria-required") == "true"
+                )
+                label_text = ""
+                cb_id = cb.get_attribute("id") or ""
+                if cb_id:
+                    lbl = p.locator(f"label[for='{cb_id}']")
+                    if lbl.count():
+                        label_text = lbl.first.inner_text()
+                if not label_text:
+                    try:
+                        label_text = cb.evaluate(
+                            "el => el.closest('label')?.innerText"
+                            " || el.parentElement?.innerText"
+                            " || el.parentElement?.parentElement?.innerText || ''"
+                        )
+                    except Exception:
+                        pass
+                if is_required or _CONSENT.search(label_text):
+                    try:
+                        cb.check()
+                    except Exception:
+                        try:
+                            cb.click()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+    def _llm_answer_field(self, label: str, el) -> bool:
+        """Use Claude Haiku to answer an open-ended field. Returns True if filled."""
+        try:
+            from anthropic import Anthropic
+            from src.config import env, load as _load_cfg
+            _cfg = _load_cfg("config")
+            _model = _cfg.get("score", {}).get("model", "claude-haiku-4-5-20251001")
+            _client = Anthropic(api_key=env("ANTHROPIC_API_KEY", required=True))
+            _resp = _client.messages.create(
+                model=_model,
+                max_tokens=300,
+                messages=[{"role": "user", "content": (
+                    f"Fill a job application for Goktug Mert Ozdogan "
+                    f"(software engineer, Istanbul, 1yr exp, Node.js/React/Python/AWS, "
+                    f"Nummoria AI SaaS co-founder, open to relocation).\n"
+                    f"Role: {self.job.title} at {self.job.company}\n\n"
+                    f"Question: {label}\n\n"
+                    f"Return ONLY the answer text, 1-3 sentences max."
+                )}],
+            )
+            ans = _resp.content[0].text.strip()
+            if ans:
+                el.fill(ans)
+                return True
+        except Exception as exc:
+            log.warning("step: LLM fallback failed for %r: %s", label, exc)
+        return False
+
     def human_delay(self, min_s: float = 0.15, max_s: float = 0.5) -> None:
         """Short randomised pause between field interactions."""
         if self.human_like:

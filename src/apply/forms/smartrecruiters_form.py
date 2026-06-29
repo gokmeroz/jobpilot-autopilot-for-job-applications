@@ -330,6 +330,9 @@ class SmartRecruitersForm(BaseFormFiller):
             except Exception:
                 pass
 
+        # -- Walk through any paginated steps before submit ------------------
+        self._walk_steps()
+
         # -- Submit ----------------------------------------------------------
         self.submit(
             "button[type='submit'][data-ui='submit-btn'], "

@@ -1109,6 +1109,9 @@ class GreenhouseForm(BaseFormFiller):
                 except Exception:
                     pass
 
+        # -- Walk through any paginated steps before submit ------------------
+        self._walk_steps()
+
         # -- Submit ----------------------------------------------------------
         # Greenhouse new board uses React — aria-disabled must be false before clicking.
         # Wait up to 5s for the submit button to become enabled after React processes

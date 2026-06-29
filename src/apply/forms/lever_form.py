@@ -94,5 +94,8 @@ class LeverForm(BaseFormFiller):
                 if not any(k in name.lower() for k in known):
                     raise NeedsUserInput(f"Unknown required field: '{name}'")
 
+        # -- Walk through any paginated steps before submit ------------------
+        self._walk_steps()
+
         # -- Submit ----------------------------------------------------------
         self.submit("button[type='submit'], button.template-btn-submit")

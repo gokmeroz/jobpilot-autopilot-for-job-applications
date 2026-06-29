@@ -515,6 +515,9 @@ class AshbyForm(BaseFormFiller):
             except Exception:
                 pass
 
+        # -- Walk through any paginated steps before submit ------------------
+        self._walk_steps()
+
         # -- Submit ----------------------------------------------------------
         # Brief human-like pause before clicking submit (helps bypass spam detection)
         import time as _time, random as _random
