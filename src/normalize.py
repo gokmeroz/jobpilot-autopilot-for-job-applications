@@ -105,6 +105,11 @@ _ATS_DOMAINS: dict[str, str] = {
     "bamboohr.com":        "bamboohr",
     "wellfound.com":       "wellfound",
     "angel.co":            "wellfound",
+    "homerun.co":          "homerun",
+    "pinpointhq.com":      "pinpoint",
+    "dover.com":           "dover",
+    "jobs.dover.com":      "dover",
+    "breezy.hr":           "breezy",
     "applytojob.com":      "jobadder",
     "dover.com":           "dover",
 }
