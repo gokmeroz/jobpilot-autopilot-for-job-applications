@@ -5,6 +5,8 @@ saves evidence, and returns an ApplicationResult.
 from __future__ import annotations
 
 import logging
+import random
+import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -148,6 +150,26 @@ def apply_job(job: Job, run_id: str) -> ApplicationResult:
     return ApplicationResult(job_key=job.job_key, status=Status.failed)
 
 
+def _human_delay(min_s: float = 0.3, max_s: float = 0.9) -> None:
+    """Short randomised pause to mimic human inter-action latency."""
+    time.sleep(random.uniform(min_s, max_s))
+
+
+def _human_mouse_wander(page) -> None:
+    """Move the mouse in a lazy arc across the page before interacting."""
+    try:
+        vp = page.viewport_size or {"width": 1280, "height": 800}
+        w, h = vp["width"], vp["height"]
+        # Three random waypoints
+        points = [(random.randint(100, w - 100), random.randint(100, h - 100))
+                  for _ in range(3)]
+        for x, y in points:
+            page.mouse.move(x, y)
+            time.sleep(random.uniform(0.05, 0.15))
+    except Exception:
+        pass
+
+
 def _run_browser(
     job: Job,
     candidate,
@@ -158,20 +180,50 @@ def _run_browser(
 ) -> ApplicationResult:
     apply_cfg = cfg["apply"]
     dry_run: bool = apply_cfg.get("dry_run", False)
+    human_like: bool = apply_cfg.get("human_like", True)
+    use_cdp: bool = apply_cfg.get("use_cdp", False)
+
+    _W = random.choice([1280, 1366, 1440, 1920])
+    _H = random.choice([768, 800, 900, 1080])
+    _UA = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/136.0.0.0 Safari/537.36"
+    )
+    _EXTRA_HEADERS = {
+        "Accept-Language": "en-US,en;q=0.9",
+        "sec-ch-ua": '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"macOS"',
+    }
+    _CONTEXT_OPTS = dict(
+        accept_downloads=True,
+        locale="en-US",
+        timezone_id="Europe/Istanbul",
+        viewport={"width": _W, "height": _H},
+        user_agent=_UA,
+        extra_http_headers=_EXTRA_HEADERS,
+    )
+
+    _STEALTH_JS = """
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        window.chrome = { runtime: {} };
+    """
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=apply_cfg.get("headless", True))
-        ctx = browser.new_context(
-            accept_downloads=True,
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-        )
+        ctx = browser.new_context(**_CONTEXT_OPTS)
         page = ctx.new_page()
+
+        # Stealth plugin (if installed) patches WebGL, canvas fingerprint, etc.
         if _STEALTH_AVAILABLE:
             _stealth_sync(page)
+
+        # JS evasions: cover webdriver flag and plugin/language spoofing in all modes.
+        page.add_init_script(_STEALTH_JS)
+
         filler = filler_cls(page, job, candidate, cfg)
 
         try:
@@ -180,6 +232,12 @@ def _run_browser(
             filler.prefetch()
 
             page.goto(job.apply_url, timeout=30_000, wait_until="domcontentloaded")
+
+            # Brief wander to look human before touching any form field
+            if human_like:
+                _human_delay(0.8, 1.8)
+                _human_mouse_wander(page)
+                _human_delay(0.3, 0.7)
 
             # Screenshot before filling
             filler.screenshot("01_start", evidence)

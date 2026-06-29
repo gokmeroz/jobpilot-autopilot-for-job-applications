@@ -28,6 +28,15 @@ apply:
   cover_letter_short: assets/cover_letters/cover_letter_short.md
   cover_letter_long: assets/cover_letters/cover_letter_long.md
 
+  # Stealth mode: activates the full anti-bot-detection stack.
+  # human_like + JS evasions + playwright_stealth + realistic headers/viewport.
+  # use_cdp: true is the recommended setting for all real applications.
+  use_cdp: true
+
+  # human_like: add randomized delays and mouse movements between field fills
+  # to reduce bot-detection by ATS platforms. Slightly slower but much safer.
+  human_like: true
+
 paths:
   runs: runs
   history: history

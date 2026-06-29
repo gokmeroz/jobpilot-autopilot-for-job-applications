@@ -23,26 +23,23 @@ from src.normalize import build_job_key
 
 _TEST_JOBS: dict[str, Job] = {
     "ashby": Job(
-        job_key     = build_job_key("Linear", "Product Engineer", "REMOTE"),
-        title       = "Product Engineer",
-        company     = "Linear",
+        job_key     = build_job_key("Checkout.com", "Software Engineer I", "REMOTE"),
+        title       = "Software Engineer I",
+        company     = "Checkout.com",
         country     = "REMOTE",
-        location    = "Remote, North America",
+        location    = "Remote",
         remote      = RemoteType.remote,
         posted_at   = datetime.now(timezone.utc),
         source      = "ashby",
         source_tier = 1,
         ats         = "ashby",
-        apply_url   = "https://jobs.ashbyhq.com/linear/0c7c2e26-0a98-42cf-a47c-9a3999fb513b",
+        apply_url   = "https://jobs.ashbyhq.com/checkout.com/62246814-691c-49c9-b574-2cb03f6e7f38",
         route       = Route.auto,
         status      = Status.scored,
         description = (
-            "Linear is a purpose-built tool for planning and building products. "
-            "We help software teams move faster by combining issue tracking, project management, "
-            "and roadmaps into one streamlined workflow. "
-            "As a Product Engineer you will build features end-to-end, "
-            "own the full stack from frontend to backend, and collaborate closely with design. "
-            "We are looking for engineers who care deeply about product quality and user experience."
+            "Checkout.com is a global payments infrastructure company. "
+            "As a Software Engineer I you will build payment processing systems "
+            "using TypeScript, Node.js, and distributed systems at global scale."
         ),
     ),
     "greenhouse": Job(

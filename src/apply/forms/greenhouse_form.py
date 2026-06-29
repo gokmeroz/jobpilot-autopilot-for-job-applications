@@ -235,7 +235,31 @@ def _answer_custom_question(label: str, el, candidate, job, page=None, cfg: dict
             return _react_pick(*select_opts) if select_opts else _safe_fill(el, text_value)
         if tag == "select":
             return _try_select_fn(el, *select_opts)
+        if el_type == "checkbox":
+            try:
+                if not el.is_checked():
+                    el.check()
+                return True
+            except Exception:
+                try:
+                    el.click()
+                    return True
+                except Exception:
+                    return False
         return _safe_fill(el, text_value)
+
+    # --- Checkbox questions (GDPR, consent, certify, agree) — check the box ---
+    if el_type == "checkbox":
+        try:
+            if not el.is_checked():
+                el.check()
+            return True
+        except Exception:
+            try:
+                el.click()
+                return True
+            except Exception:
+                return False
 
     # --- File attach (Mercury-style cover letter or extra doc upload) ---
     if re.search(r"\battach\b|attach.*file|attach.*doc|upload.*doc", ll):
@@ -281,7 +305,9 @@ def _answer_custom_question(label: str, el, candidate, job, page=None, cfg: dict
         return _fill_or_select_or_react("No", ["No", "No, I am not"])
 
     # "on-site / office-first" willingness — candidate is open to relocating
-    if re.search(r"work on.?site|office.first|able to work.*office|work.*from.*office", ll):
+    if re.search(r"work on.?site|office.first|able to work.*office|work.*from.*office"
+                 r"|willing.*office|office.*day|day.*office|hybrid.*office|office.*hybrid"
+                 r"|in.?person.*day|days.*per.*week.*office|office.*days.*week", ll):
         return _fill_or_select_or_react("Yes", ["Yes", "I am", "I can", "I agree"])
 
     # British spelling "authorised" as well as American "authorized"
@@ -301,6 +327,18 @@ def _answer_custom_question(label: str, el, candidate, job, page=None, cfg: dict
         return _fill_or_select_or_react(ans, [ans])
     if re.search(r"preferred name|name.*prefer|prefer.*name|what name|name.*use|call you", ll):
         return _safe_fill(el, candidate.first_name)
+    if re.search(r"preferred.*working.*location|preferred.*work.*location|work.*location.*prefer"
+                 r"|which.*location.*prefer|prefer.*office.*location|preferred.*office", ll):
+        # Pick the job city, defaulting to the most common options
+        _loc_city = (job.location or "").split(",")[0].strip() if job.location else ""
+        _loc_opts = [_loc_city] if _loc_city else []
+        _loc_opts += ["Berlin", "Barcelona", "Vienna", "London", "Amsterdam", "Remote",
+                      "Flexible", "Other"]
+        return _fill_or_select_or_react(_loc_city or "Berlin", _loc_opts)
+    if re.search(r"relative|domestic partner|family member.*employ|employ.*family"
+                 r"|friends.*employ|employ.*friend|personal relationship.*employ"
+                 r"|currently working for|work.*for n26|n26.*employ|conflict.*interest", ll):
+        return _fill_or_select_or_react("No", ["No", "None", "I do not have", "N/A"])
     if re.search(r"previously worked|worked (at|for)|consulted for", ll):
         return _fill_or_select_or_react("No", ["No"])
     if re.search(r"employment agreement|post.?employment|non.?compete|restrictive covenant", ll):
@@ -330,8 +368,9 @@ def _answer_custom_question(label: str, el, candidate, job, page=None, cfg: dict
                  r"|country.*located|located.*country|country.*resid|resid.*country"
                  r"|choose.*country|current country|country of residence|currently based", ll):
         return _fill_or_select_or_react("Istanbul, Turkey",
-                               ["Turkey", "Located Elsewhere",
-                                "Outside United States", "International", "Europe"])
+                               ["Istanbul", "Turkey", "Türkiye", "Located Elsewhere",
+                                "Outside United States", "International", "Europe",
+                                "Other"])
     if re.search(r"(currently|presently).*(work|employed|based)|which country.*(work|current|employ)"
                  r"|country.*do you (currently|presently)|where.*(currently|presently).*(work|employ)", ll):
         return _fill_or_select_or_react("Turkey",
@@ -538,11 +577,36 @@ class GreenhouseForm(BaseFormFiller):
         #      inside the frame to reach the application form.
         #   4. Switch self.page to the frame so all subsequent fills target it.
         #      (self._parent_page keeps the original Page for screenshots/keyboard.)
+        # --- Cookie / consent popup dismissal (host pages like N26) ----------
+        # Must happen BEFORE clicking "Apply for this position" — overlaying
+        # consent banners block Playwright clicks on elements underneath them.
+        _CONSENT_BTNS = [
+            "Accept All", "Accept all", "Accept all cookies",
+            "Agree", "Agree to all", "Allow All", "Allow all",
+            "OK", "Got it", "I Accept", "I agree",
+            "Close", "Dismiss",
+        ]
+        try:
+            for _ct in _CONSENT_BTNS:
+                _cb = p.get_by_role("button", name=_ct, exact=False).first
+                if _cb.count() > 0 and _cb.is_visible(timeout=500):
+                    _cb.click()
+                    p.wait_for_timeout(800)
+                    log.debug("dismissed cookie popup via %r", _ct)
+                    break
+        except Exception:
+            pass
+
         if "greenhouse.io" not in p.url and not p.query_selector("#first_name"):
             _on_form  = False
             _parent   = p   # original Page — needed for screenshots & keyboard
 
-            # Step 1: click the visible "Apply" button on the host page
+            # Step 1: click the visible "Apply" button on the host page.
+            # Snapshot pages BEFORE clicking so we can detect new tabs.
+            try:
+                _pages_before = set(_parent.context.pages)
+            except Exception:
+                _pages_before = set()
             for _apply_text in [
                 "Apply now", "Apply Now",
                 "Apply for this Job", "Apply for this job",
@@ -557,48 +621,96 @@ class GreenhouseForm(BaseFormFiller):
                 except Exception:
                     continue
 
-            # Step 2: find the greenhouse.io frame (may load lazily via JS)
-            p.wait_for_timeout(1_500)
-            # If no frame yet, wait for one to appear (N26 and similar lazy loaders)
-            if not any(f.url and "greenhouse.io" in f.url for f in p.frames):
+            # Step 2a: check if the button opened a new browser tab (N26-style).
+            # Some companies open the embedded Greenhouse form in a fresh tab rather
+            # than an iframe, so we detect new pages in the browser context.
+            p.wait_for_timeout(2_000)
+            if not _on_form:
                 try:
-                    p.wait_for_selector("iframe[src*='greenhouse']", timeout=8_000)
-                    p.wait_for_timeout(1_000)
-                except Exception:
-                    pass
-            try:
-                _gh_frames = [f for f in p.frames if f.url and "greenhouse.io" in f.url]
-                if _gh_frames:
-                    _frame = _gh_frames[0]
+                    _new_pages = [
+                        pg for pg in _parent.context.pages
+                        if pg not in _pages_before
+                    ]
+                    for _new_page in _new_pages:
+                        try:
+                            _new_page.wait_for_load_state("domcontentloaded", timeout=12_000)
+                        except Exception:
+                            pass
+                        _np_url = _new_page.url or ""
+                        if "greenhouse.io" in _np_url or _new_page.query_selector("#first_name"):
+                            self._parent_page = _parent
+                            self.page = _new_page
+                            p = _new_page
+                            _on_form = True
+                            log.info("switched to Greenhouse new tab: %s", _np_url[:80])
+                            break
+                        # The new tab may show the GH job description — click Apply inside it
+                        if not _on_form:
+                            for _inner_text in [
+                                "Apply for this Job", "Apply for this job",
+                                "Apply to this job", "Apply now", "Apply",
+                            ]:
+                                try:
+                                    _ib = _new_page.get_by_text(_inner_text, exact=False).first
+                                    if _ib.count() > 0 and _ib.is_visible():
+                                        _ib.click()
+                                        _new_page.wait_for_selector("#first_name", timeout=10_000)
+                                        self._parent_page = _parent
+                                        self.page = _new_page
+                                        p = _new_page
+                                        _on_form = True
+                                        log.info("switched to Greenhouse new tab (after inner click): %s",
+                                                 _new_page.url[:80])
+                                        break
+                                except Exception:
+                                    continue
+                        if _on_form:
+                            break
+                except Exception as _nt_exc:
+                    log.debug("new-tab detection failed: %s", _nt_exc)
 
-                    # Step 3: the frame might show the job description first —
-                    # click its own "Apply" button if #first_name isn't visible yet.
+            # Step 2b: find the greenhouse.io frame (may load lazily via JS)
+            if not _on_form:
+                p.wait_for_timeout(1_500)
+                if not any(f.url and "greenhouse.io" in f.url for f in p.frames):
                     try:
-                        _frame.wait_for_selector("#first_name", timeout=3_000)
-                        _on_form = True
+                        p.wait_for_selector("iframe[src*='greenhouse']", timeout=8_000)
+                        p.wait_for_timeout(1_000)
                     except Exception:
-                        for _inner_text in [
-                            "Apply for this Job", "Apply for this job",
-                            "Apply to this job", "Apply",
-                        ]:
-                            try:
-                                _inner_btn = _frame.get_by_text(_inner_text, exact=False).first
-                                if _inner_btn.count() > 0:
-                                    _inner_btn.click()
-                                    _frame.wait_for_selector("#first_name", timeout=8_000)
-                                    _on_form = True
-                                    break
-                            except Exception:
-                                continue
+                        pass
+                try:
+                    _gh_frames = [f for f in p.frames if f.url and "greenhouse.io" in f.url]
+                    if _gh_frames:
+                        _frame = _gh_frames[0]
 
-                    if _on_form:
-                        # Switch filler context to the iframe
-                        self._parent_page = _parent
-                        self.page = _frame
-                        p = _frame
-                        log.info("switched to greenhouse iframe at %s", _frame.url[:80])
-            except Exception as _exc:
-                log.debug("iframe strategy failed: %s", _exc)
+                        # Step 3: the frame might show the job description first —
+                        # click its own "Apply" button if #first_name isn't visible yet.
+                        try:
+                            _frame.wait_for_selector("#first_name", timeout=3_000)
+                            _on_form = True
+                        except Exception:
+                            for _inner_text in [
+                                "Apply for this Job", "Apply for this job",
+                                "Apply to this job", "Apply",
+                            ]:
+                                try:
+                                    _inner_btn = _frame.get_by_text(_inner_text, exact=False).first
+                                    if _inner_btn.count() > 0:
+                                        _inner_btn.click()
+                                        _frame.wait_for_selector("#first_name", timeout=8_000)
+                                        _on_form = True
+                                        break
+                                except Exception:
+                                    continue
+
+                        if _on_form:
+                            # Switch filler context to the iframe
+                            self._parent_page = _parent
+                            self.page = _frame
+                            p = _frame
+                            log.info("switched to greenhouse iframe at %s", _frame.url[:80])
+                except Exception as _exc:
+                    log.debug("iframe strategy failed: %s", _exc)
 
             if not _on_form:
                 raise NeedsUserInput(

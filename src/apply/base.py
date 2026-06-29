@@ -4,6 +4,8 @@ Shared types and base class for all ATS form fillers.
 from __future__ import annotations
 
 import logging
+import random
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +51,7 @@ class BaseFormFiller(ABC):
         self.candidate   = candidate
         self.cfg         = cfg
         self.dry_run: bool = cfg["apply"].get("dry_run", False)
+        self.human_like: bool = cfg["apply"].get("human_like", True)
         self._cl_text: str = ""   # pre-computed by prefetch() before page.goto()
         self._parent_page: Page | None = None  # set when form is inside an iframe
 
@@ -66,11 +69,17 @@ class BaseFormFiller(ABC):
 
     # -- helpers -------------------------------------------------------------
 
+    def human_delay(self, min_s: float = 0.15, max_s: float = 0.5) -> None:
+        """Short randomised pause between field interactions."""
+        if self.human_like:
+            time.sleep(random.uniform(min_s, max_s))
+
     def fill(self, selector: str, value: str, *, timeout: int = FILL_TIMEOUT) -> bool:
         """Fill a text input. Returns False if element not found."""
         try:
             el = self.page.wait_for_selector(selector, timeout=timeout)
             if el:
+                self.human_delay()
                 el.fill(value)
                 return True
         except PWTimeout:
@@ -136,8 +145,11 @@ class BaseFormFiller(ABC):
         # When form is inside an iframe, self.page is a Frame (no .screenshot()).
         # Use the original parent page which captures the full viewport including frames.
         target = self._parent_page or self.page
-        target.screenshot(path=str(path), full_page=True)
-        log.debug("screenshot → %s", path.name)
+        try:
+            target.screenshot(path=str(path), full_page=True)
+            log.debug("screenshot → %s", path.name)
+        except Exception as exc:
+            log.debug("screenshot skipped (%s): %s", path.name, exc)
 
     def submit(self, selector: str) -> None:
         """Click submit — skipped entirely in dry_run mode."""

@@ -339,8 +339,10 @@ class AshbyForm(BaseFormFiller):
         _yn_rules = [
             (_re.compile(r"us[\s\xa0]+or[\s\xa0]+canada|north[\s\xa0]+america", _re.IGNORECASE), "No"),
             (_re.compile(r"based[\s\xa0]+in.*(?:us|uk|eu|europe|ireland)", _re.IGNORECASE), "No"),
-            (_re.compile(r"authorized.*work|work.*authoriz|eligible.*work", _re.IGNORECASE), "No"),
+            (_re.compile(r"right[\s\xa0]+to[\s\xa0]+work|authoris?ed.*work|work.*authoriz|eligible.*work", _re.IGNORECASE), "No"),
             (_re.compile(r"visa[\s\xa0]*sponsor|require.*visa|sponsor.*requir", _re.IGNORECASE), "Yes"),
+            (_re.compile(r"hybrid|office.*day|day.*office|willing.*office|work.*in.*office|in.?person.*day", _re.IGNORECASE), "Yes"),
+            (_re.compile(r"willing.*relocat|open.*relocat|relocat.*willing", _re.IGNORECASE), "Yes"),
         ]
         try:
             for yn_group in p.locator("[class*='yesno']").all():
