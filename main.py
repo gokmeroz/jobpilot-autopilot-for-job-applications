@@ -14,6 +14,7 @@ Usage:
     python main.py --source ukhired       # only UKHired (UK visa sponsorship jobs)
     python main.py --source wellfound     # only Wellfound via Apify (needs APIFY_TOKEN)
     python main.py --source linkedin      # only LinkedIn via Apify (needs APIFY_TOKEN)
+    python main.py --source graduate      # only graduate programmes (JSearch + Adzuna)
     python main.py --dry-run              # discover + gate only, no LLM calls
     python main.py --run-id my-run-001    # override the run ID
     python main.py -v                     # verbose logging
@@ -38,6 +39,7 @@ _ALL_SOURCES = [
     "jsearch",
     "adzuna",
     "linkedin",
+    "graduate",
 ]
 
 
@@ -62,6 +64,7 @@ def _discover(sources: list[str]) -> list:
     from src.discover.apis.ukhired import fetch as ukhired_fetch
     from src.discover.apis.jsearch import fetch as jsearch_fetch
     from src.discover.apis.adzuna import fetch as adzuna_fetch
+    from src.discover.apis.graduate import fetch as graduate_fetch
     from src.discover.ats.ashby import fetch as ashby_fetch
     from src.discover.ats.greenhouse import fetch as greenhouse_fetch
     from src.discover.ats.lever import fetch as lever_fetch
@@ -122,6 +125,10 @@ def _discover(sources: list[str]) -> list:
         print("Fetching from LinkedIn (via Apify)…")
         jobs += linkedin_fetch()
 
+    if "graduate" in sources:
+        print("Fetching graduate programmes (JSearch + Adzuna)…")
+        jobs += graduate_fetch()
+
     # Expand: for any job whose URL points to a new Greenhouse/Ashby/Lever
     # company not already in sources.yaml, fetch ALL their open jobs.
     if jobs:
@@ -154,6 +161,7 @@ def _dry_run(jobs: list) -> None:
         for job in new:
             age = f"{job.age_hours():.0f}h" if job.age_hours() is not None else "age?"
             print(f"  [{age:>5}] {job.title} @ {job.company} ({job.country})")
+            print(f"           {job.apply_url}")
 
 
 W = 108  # table width constant

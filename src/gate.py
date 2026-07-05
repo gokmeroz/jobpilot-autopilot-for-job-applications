@@ -39,7 +39,15 @@ _TECH_TITLE_RE = re.compile(
     # bare "developer" / "programmer" — almost always SWE in practice
     r"developer|programmer|coder|"
     # German SWE terms (NOT systemingenieur / systemadmin / systemintegration)
-    r"softwareentwicklung|softwareentwickler|entwickler|programmierer|fachinformatiker"
+    r"softwareentwicklung|softwareentwickler|entwickler|programmierer|fachinformatiker|"
+    # Graduate programmes / schemes / rotational programs
+    # Catches: "Software Engineering Graduate", "Technology Graduate Scheme",
+    # "Engineering Graduate Programme", "New Grad Program", "Graduate Programme"
+    r"software\s+engineering\s+graduate|"
+    r"(?:technology|tech|engineering|digital|computing|it)\s+graduate|"
+    r"graduate\s+(?:technology|tech|engineering|digital|computing)|"
+    r"graduate\s+(?:programme|program|scheme|rotational|cohort|track)|"
+    r"new[\s\-]?grad(?:\s+(?:programme|program|scheme))?"
     r")\b",
     re.IGNORECASE,
 )
