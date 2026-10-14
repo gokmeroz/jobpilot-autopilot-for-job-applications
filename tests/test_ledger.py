@@ -112,6 +112,31 @@ def test_mark_status_updates_record():
 
 # ── record_batch ──────────────────────────────────────────────────────────────
 
+def test_upsert_handles_different_job_key_same_url_hash():
+    """Two different job_keys resolving to the identical apply_url (aggregator
+    dupes) must not crash — the second upsert should refresh the existing row
+    instead of raising IntegrityError on the url_hash UNIQUE constraint."""
+    job_a = make_job(job_key="acme__engineer__de", apply_url="https://example.com/jobs/same")
+    job_b = make_job(job_key="acme-inc__software-engineer__de", apply_url="https://example.com/jobs/same")
+
+    ledger.upsert(job_a, "run-001")
+    ledger.upsert(job_b, "run-002")  # must not raise
+
+    assert ledger.is_duplicate(job_a)
+    assert ledger.is_duplicate(job_b)
+
+
+def test_record_batch_handles_url_hash_collision_across_jobs():
+    same_url = "https://example.com/jobs/collide"
+    job_a = make_job(job_key="a__x__de", apply_url=same_url, status=Status.scored)
+    job_b = make_job(job_key="b__x__de", apply_url=same_url, status=Status.scored)
+
+    ledger.record_batch([job_a, job_b], "run-001")  # must not raise
+
+    assert ledger.is_duplicate(job_a)
+    assert ledger.is_duplicate(job_b)
+
+
 def test_record_batch_skips_failed():
     good = make_job(apply_url="https://example.com/jobs/30", status=Status.scored)
     bad  = make_job(

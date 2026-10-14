@@ -7,6 +7,7 @@ import pytest
 
 from src.gate import (
     _gate_age,
+    _gate_country,
     _gate_domain,
     _gate_language,
     _gate_role,
@@ -213,3 +214,26 @@ class TestRun:
         jobs = [make_job(title="Senior Engineer", yoe_max=5)]
         _, rejected = run(jobs)
         assert rejected[0].gate_reason is not None
+
+
+# ── Country gate ─────────────────────────────────────────────────────────────
+
+class TestGateCountry:
+    def test_no_restriction_passes_everything(self):
+        assert _gate_country(make_job(country="DE"), None) is None
+
+    def test_allowed_country_passes(self):
+        assert _gate_country(make_job(country="TR"), ["TR"]) is None
+
+    def test_abroad_country_rejected(self):
+        assert _gate_country(make_job(country="DE"), ["TR"]) is not None
+
+    def test_remote_rejected_unless_listed(self):
+        assert _gate_country(make_job(country="REMOTE"), ["TR"]) is not None
+        assert _gate_country(make_job(country="REMOTE"), ["TR", "REMOTE"]) is None
+
+    def test_run_filters_to_allowed_countries(self):
+        jobs = [make_job(country="TR"), make_job(country="DE")]
+        passed, rejected = run(jobs, countries=["TR"])
+        assert [j.country for j in passed] == ["TR"]
+        assert rejected[0].status == Status.gated_out

@@ -16,7 +16,7 @@ import re
 import time
 import random
 
-from src.apply.base import BaseFormFiller, NeedsUserInput, FILL_TIMEOUT
+from src.apply.base import BaseFormFiller, NeedsUserInput, FILL_TIMEOUT, answer_open_question
 
 log = logging.getLogger(__name__)
 
@@ -119,29 +119,6 @@ def _wd_radio_yes_no(page, container_sel: str, answer: str) -> bool:
     return False
 
 
-def _llm_answer(label: str, candidate, job) -> str:
-    try:
-        from anthropic import Anthropic
-        from src.config import env, load as _load
-        cfg = _load("config")
-        model = cfg.get("score", {}).get("model", "claude-haiku-4-5-20251001")
-        client = Anthropic(api_key=env("ANTHROPIC_API_KEY", required=True))
-        resp = client.messages.create(
-            model=model,
-            max_tokens=300,
-            messages=[{"role": "user", "content": (
-                f"Fill a Workday job application for Goktug Mert Ozdogan "
-                f"(software engineer, Istanbul, 1yr exp, Node.js/React/Python/AWS, "
-                f"Nummoria AI SaaS co-founder, open to relocation).\n"
-                f"Role: {job.title} at {job.company}\n\n"
-                f"Question: {label}\n\n"
-                f"Return ONLY the answer text, 1-3 sentences max."
-            )}],
-        )
-        return resp.content[0].text.strip()
-    except Exception as exc:
-        log.warning("workday: LLM answer failed for %r: %s", label, exc)
-        return ""
 
 
 class WorkdayForm(BaseFormFiller):
@@ -405,7 +382,7 @@ class WorkdayForm(BaseFormFiller):
                     if inp.count() > 0:
                         try:
                             if not inp.input_value():
-                                answer = _llm_answer(label_text, c, job)
+                                answer = answer_open_question(label_text, c, job)
                                 if answer:
                                     inp.fill(answer)
                         except Exception:

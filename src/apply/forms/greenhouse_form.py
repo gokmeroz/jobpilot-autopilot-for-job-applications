@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import re
 
-from src.apply.base import BaseFormFiller, NeedsUserInput
+from src.apply.base import BaseFormFiller, NeedsUserInput, answer_open_question
 
 log = logging.getLogger(__name__)
 
@@ -20,51 +20,6 @@ def _safe_fill(el, value: str) -> bool:
         return True
     except Exception:
         return False
-
-
-def _llm_answer_question(label: str, candidate, job) -> str:
-    """Use Claude Haiku to answer an open-ended application question."""
-    try:
-        from anthropic import Anthropic
-        from src.config import env, load as _load
-
-        cfg = _load("config")
-        model = cfg.get("score", {}).get("model", "claude-haiku-4-5-20251001")
-        client = Anthropic(api_key=env("ANTHROPIC_API_KEY", required=True))
-
-        profile = (
-            f"Candidate: {candidate.full_name}\n"
-            f"Role: {job.title} at {job.company}\n"
-            f"Location: Istanbul, Turkey (open to relocation)\n"
-            f"Experience: {candidate.yoe} year(s) professional\n"
-            f"Education: {candidate.education}\n"
-            f"Skills: Node.js, TypeScript, React, Python, MongoDB, AWS, AI/LLM integration\n"
-            f"Recent: Nummoria (AI personal finance SaaS, full-stack co-founder)\n"
-            f"Previous: Halkbank internship (Angular/.NET), Eyehub TÜBİTAK project (Node.js/AWS)\n"
-            f"LinkedIn: {candidate.linkedin_url}\n"
-            f"GitHub: {candidate.github_url}\n"
-            f"Portfolio: {candidate.portfolio_url}"
-        )
-        prompt = (
-            f"You are filling a job application for the candidate below.\n"
-            f"Answer the following question concisely and professionally.\n\n"
-            f"{profile}\n\n"
-            f"Question: {label}\n\n"
-            f"Rules:\n"
-            f"- 1-3 sentences max unless clearly more is needed\n"
-            f"- Factual and specific — never invent credentials\n"
-            f"- Do not start with 'I would like to...' — be direct\n"
-            f"- Return ONLY the answer text, nothing else"
-        )
-        resp = client.messages.create(
-            model=model,
-            max_tokens=300,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return resp.content[0].text.strip()
-    except Exception as exc:
-        log.warning("LLM answer failed for %r: %s", label, exc)
-        return ""
 
 
 def _fill_or_select(el, tag: str, text_value: str, select_opts: list[str]) -> bool:
@@ -441,7 +396,7 @@ def _answer_custom_question(label: str, el, candidate, job, page=None, cfg: dict
             f"US state residency question requires manual answer: {label!r}"
         )
     if re.search(r"why.*want.*join|why.*join|why.*apply|what.*excites|why.*interest|why.*work (at|for|with)", ll):
-        answer = _llm_answer_question(label, candidate, job)
+        answer = answer_open_question(label, candidate, job)
         return _safe_fill(el, answer) if answer else False
     if re.search(r"current.*company|most recent company|current employer|last employer|present company", ll):
         return _safe_fill(el, "Nummoria")
@@ -535,7 +490,7 @@ def _answer_custom_question(label: str, el, candidate, job, page=None, cfg: dict
 
     # --- LLM fallback for open text/textarea (not React Select comboboxes) ---
     if not is_react_select and tag in ("input", "textarea") and el_type not in ("file", "hidden", "checkbox", "radio"):
-        answer = _llm_answer_question(label, candidate, job)
+        answer = answer_open_question(label, candidate, job)
         if answer:
             return _safe_fill(el, answer)
 

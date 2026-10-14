@@ -25,6 +25,19 @@ CREATE TABLE IF NOT EXISTS jobs (
     PRIMARY KEY (job_key)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_url_hash ON jobs (url_hash);
+
+CREATE TABLE IF NOT EXISTS source_health (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id      TEXT NOT NULL,
+    run_id         TEXT NOT NULL,
+    verdict        TEXT NOT NULL,
+    reason         TEXT,
+    result_count   INTEGER NOT NULL,
+    historical_avg REAL,
+    disabled       INTEGER NOT NULL DEFAULT 0,
+    checked_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_source_health_source ON source_health (source_id, checked_at);
 """
 
 
@@ -93,31 +106,49 @@ def upsert(job: Job, run_id: str) -> None:
     """
     Insert the job if new; if we've seen the job_key before, update
     last_seen and status only (never overwrite first_seen).
+
+    job_key and url_hash are both UNIQUE, but only job_key has an ON CONFLICT
+    handler above — a different job_key can still land on the same url_hash
+    (aggregator sources occasionally emit two listings that resolve to the
+    identical apply_url). Treat that the same way: it's a job we've already
+    recorded, just under a different key, so refresh the existing row instead
+    of crashing the whole batch on an IntegrityError.
     """
     now = _now()
     with _conn() as con:
-        con.execute(
-            """
-            INSERT INTO jobs (job_key, url_hash, company, title, country,
-                              status, run_id, first_seen, last_seen)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(job_key) DO UPDATE SET
-                last_seen = excluded.last_seen,
-                status    = excluded.status,
-                run_id    = excluded.run_id
-            """,
-            (
-                job.job_key,
-                job.url_hash(),
-                job.company,
-                job.title,
-                job.country,
-                job.status.value,
-                run_id,
-                now,
-                now,
-            ),
-        )
+        try:
+            con.execute(
+                """
+                INSERT INTO jobs (job_key, url_hash, company, title, country,
+                                  status, run_id, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(job_key) DO UPDATE SET
+                    last_seen = excluded.last_seen,
+                    status    = excluded.status,
+                    run_id    = excluded.run_id
+                """,
+                (
+                    job.job_key,
+                    job.url_hash(),
+                    job.company,
+                    job.title,
+                    job.country,
+                    job.status.value,
+                    run_id,
+                    now,
+                    now,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            log.warning(
+                "ledger: url_hash collision for %s @ %s (job_key=%s) — "
+                "already recorded under a different job_key, refreshing that row",
+                job.title, job.company, job.job_key,
+            )
+            con.execute(
+                "UPDATE jobs SET last_seen = ?, status = ?, run_id = ? WHERE url_hash = ?",
+                (now, job.status.value, run_id, job.url_hash()),
+            )
 
 
 def mark_status(job: Job, status: Status, run_id: str) -> None:
@@ -163,3 +194,55 @@ def record_batch(jobs: list[Job], run_id: str) -> None:
     for job in jobs:
         if job.status != Status.failed:
             upsert(job, run_id)
+
+
+# ---------------------------------------------------------------------------
+# Source health
+# ---------------------------------------------------------------------------
+
+def source_result_history(source_id: str, limit: int = 10) -> list[int]:
+    """Recent result counts for a source, most-recent first.
+
+    Used for the yield-drop health signal — never includes the run currently
+    being checked, since that row hasn't been recorded yet.
+    """
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT result_count FROM source_health WHERE source_id = ? "
+            "ORDER BY checked_at DESC LIMIT ?",
+            (source_id, limit),
+        ).fetchall()
+    return [r["result_count"] for r in rows]
+
+
+def record_source_health(
+    source_id: str,
+    run_id: str,
+    verdict: str,
+    reason: str,
+    result_count: int,
+    historical_avg: float | None,
+    disabled: bool,
+) -> None:
+    """Persist one health verdict for a source. Additive — never overwrites
+    prior rows, so history stays intact for the yield-drop signal."""
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO source_health
+                (source_id, run_id, verdict, reason, result_count, historical_avg, disabled, checked_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (source_id, run_id, verdict, reason, result_count, historical_avg, int(disabled), _now()),
+        )
+
+
+def is_source_disabled(source_id: str) -> bool:
+    """True if the most recent health check left this source disabled."""
+    with _conn() as con:
+        row = con.execute(
+            "SELECT disabled FROM source_health WHERE source_id = ? "
+            "ORDER BY checked_at DESC LIMIT 1",
+            (source_id,),
+        ).fetchone()
+    return bool(row["disabled"]) if row else False

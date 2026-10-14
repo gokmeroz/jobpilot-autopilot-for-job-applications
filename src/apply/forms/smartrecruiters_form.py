@@ -13,42 +13,11 @@ from __future__ import annotations
 import logging
 import re
 
-from src.apply.base import BaseFormFiller, NeedsUserInput
+from src.apply.base import BaseFormFiller, NeedsUserInput, answer_open_question
 
 log = logging.getLogger(__name__)
 
 
-def _llm_answer(label: str, candidate, job) -> str:
-    try:
-        from anthropic import Anthropic
-        from src.config import env, load as _load
-        cfg = _load("config")
-        model = cfg.get("score", {}).get("model", "claude-haiku-4-5-20251001")
-        client = Anthropic(api_key=env("ANTHROPIC_API_KEY", required=True))
-        profile = (
-            f"Candidate: {candidate.full_name}\n"
-            f"Role: {job.title} at {job.company}\n"
-            f"Location: Istanbul, Turkey (open to relocation)\n"
-            f"Experience: {candidate.yoe} year(s)\n"
-            f"Skills: Node.js, TypeScript, React, Python, MongoDB, AWS, AI/LLM integration\n"
-            f"Recent: Nummoria (AI personal finance SaaS, full-stack co-founder)\n"
-            f"LinkedIn: {candidate.linkedin_url}\n"
-            f"GitHub: {candidate.github_url}"
-        )
-        resp = client.messages.create(
-            model=model,
-            max_tokens=300,
-            messages=[{"role": "user", "content": (
-                f"Fill a job application for the candidate below.\n"
-                f"Answer this question concisely and professionally (1-3 sentences max).\n\n"
-                f"{profile}\n\nQuestion: {label}\n\n"
-                f"Return ONLY the answer text, nothing else."
-            )}],
-        )
-        return resp.content[0].text.strip()
-    except Exception as exc:
-        log.warning("LLM answer failed for %r: %s", label, exc)
-        return ""
 
 
 def _answer_custom(page, el, tag: str, label: str, candidate, job) -> bool:
@@ -120,7 +89,7 @@ def _answer_custom(page, el, tag: str, label: str, candidate, job) -> bool:
         return _fill_or_select("No", ["No"])
 
     if tag in ("input", "textarea"):
-        answer = _llm_answer(label, candidate, job)
+        answer = answer_open_question(label, candidate, job)
         if answer:
             return _fill(answer)
 

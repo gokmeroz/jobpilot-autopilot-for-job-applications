@@ -146,11 +146,21 @@ def _gate_language(job: Job, allowed: list[str], german_ok: bool) -> str | None:
     return f"language '{lang}' not in allowed {allowed}"
 
 
-def check(job: Job) -> Job:
+def _gate_country(job: Job, allowed: list[str] | None) -> str | None:
+    """Return a reason string if the job's country is outside an explicit allow-list."""
+    if not allowed:
+        return None  # no restriction requested
+    if job.country.upper() in allowed:
+        return None
+    return f"country '{job.country}' not in allowed {allowed}"
+
+
+def check(job: Job, *, countries: list[str] | None = None) -> Job:
     """Run all gate checks on a single job. Returns the job with status updated."""
     cfg = load("config")["gate"]
 
     checks = [
+        _gate_country(job, countries),
         _gate_age(job, cfg["max_age_hours"]),
         _gate_role(job),
         _gate_domain(job),
@@ -170,16 +180,19 @@ def check(job: Job) -> Job:
     return job
 
 
-def run(jobs: list[Job]) -> tuple[list[Job], list[Job]]:
+def run(jobs: list[Job], *, countries: list[str] | None = None) -> tuple[list[Job], list[Job]]:
     """
     Gate a list of jobs.
     Returns (passed, rejected) — both lists preserve original order within each group.
+
+    countries: optional allow-list of country codes (ISO2 or REMOTE) for this run only;
+    None means no country restriction.
     """
     passed: list[Job] = []
     rejected: list[Job] = []
 
     for job in jobs:
-        result = check(job)
+        result = check(job, countries=countries)
         if result.status == Status.gated_out:
             rejected.append(result)
         else:
