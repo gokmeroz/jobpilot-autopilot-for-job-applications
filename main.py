@@ -2,25 +2,25 @@
 JobPilot CLI
 
 Usage:
-    python main.py                        # run all sources
-    python main.py --source greenhouse    # only Greenhouse companies
-    python main.py --source arbeitnow     # only Arbeitnow
-    python main.py --source lever         # only Lever companies
-    python main.py --source ashby         # only Ashby companies
-    python main.py --source remotive      # only Remotive API
-    python main.py --source weworkremotely  # only WeWorkRemotely RSS
-    python main.py --source remoteok      # only RemoteOK API
-    python main.py --source relocateme    # only Relocate.me (EU relocation jobs)
-    python main.py --source ukhired       # only UKHired (UK visa sponsorship jobs)
-    python main.py --source wellfound     # only Wellfound via Apify (needs APIFY_TOKEN)
-    python main.py --source linkedin      # only LinkedIn via Apify (needs APIFY_TOKEN)
-    python main.py --source graduate      # only graduate programmes (JSearch + Adzuna)
-    python main.py --dry-run              # discover + gate only, no LLM calls
-    python main.py --countries TR         # this run only: keep Turkey jobs, drop abroad
-    python main.py --eu --remote          # region presets: --turkey --eu --uk --eu-uk --remote --all
-    python main.py --manual-only          # never auto-apply; everything goes to the manual queue
-    python main.py --run-id my-run-001    # override the run ID
-    python main.py -v                     # verbose logging
+    jobpilot                            # run all sources
+    jobpilot --source greenhouse        # only Greenhouse companies
+    jobpilot --source arbeitnow         # only Arbeitnow
+    jobpilot --source lever             # only Lever companies
+    jobpilot --source ashby             # only Ashby companies
+    jobpilot --source remotive          # only Remotive API
+    jobpilot --source weworkremotely    # only WeWorkRemotely RSS
+    jobpilot --source remoteok          # only RemoteOK API
+    jobpilot --source relocateme        # only Relocate.me (EU relocation jobs)
+    jobpilot --source ukhired           # only UKHired (UK visa sponsorship jobs)
+    jobpilot --source wellfound         # only Wellfound via Apify (needs APIFY_TOKEN)
+    jobpilot --source linkedin          # only LinkedIn via Apify (needs APIFY_TOKEN)
+    jobpilot --source graduate          # only graduate programmes (JSearch + Adzuna)
+    jobpilot --dry-run                  # discover + gate only, no LLM calls
+    jobpilot --countries TR             # this run only: keep Turkey jobs, drop abroad
+    jobpilot --eu --remote              # region presets: --turkey --eu --uk --eu-uk --remote --all
+    jobpilot --manual-only              # never auto-apply; everything goes to the manual queue
+    jobpilot --run-id my-run-001        # override the run ID
+    jobpilot -v                         # verbose logging
 """
 from __future__ import annotations
 

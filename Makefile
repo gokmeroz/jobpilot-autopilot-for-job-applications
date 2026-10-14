@@ -25,6 +25,11 @@ setup: ## Create venv, install deps, install Playwright, create working dirs
 	@echo "  Next: copy .env.example to .env and fill in ANTHROPIC_API_KEY + SHEET_ID"
 	@echo ""
 
+install-cli: ## Put the `jobpilot` command on your PATH (symlink into ~/.local/bin)
+	mkdir -p $(HOME)/.local/bin
+	ln -sf $(CURDIR)/bin/jobpilot $(HOME)/.local/bin/jobpilot
+	@echo "  Installed: jobpilot → $(CURDIR)/bin/jobpilot"
+
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 run: ## Discover, score, review, apply, sync — all sources
 	$(PYTHON) main.py
