@@ -7,6 +7,7 @@ import pytest
 
 from src.gate import (
     _gate_age,
+    _gate_company,
     _gate_country,
     _gate_domain,
     _gate_language,
@@ -237,3 +238,17 @@ class TestGateCountry:
         passed, rejected = run(jobs, countries=["TR"])
         assert [j.country for j in passed] == ["TR"]
         assert rejected[0].status == Status.gated_out
+
+
+# ── Company blocklist ────────────────────────────────────────────────────────
+
+class TestGateCompany:
+    def test_blocklisted_company_rejected_ignoring_case_and_punctuation(self):
+        assert _gate_company(make_job(company="JOBRIGHT AI"), ["Jobright.ai"]) is not None
+        assert _gate_company(make_job(company="jack & jill "), ["Jack & Jill"]) is not None
+
+    def test_exact_name_only_no_substring_match(self):
+        assert _gate_company(make_job(company="Hired Score Inc"), ["Hired"]) is None
+
+    def test_empty_blocklist_passes(self):
+        assert _gate_company(make_job(company="Hire Feed"), []) is None

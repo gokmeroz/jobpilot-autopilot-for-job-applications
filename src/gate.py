@@ -132,6 +132,17 @@ def _gate_domain(job: Job) -> str | None:
     return None
 
 
+def _norm_company(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _gate_company(job: Job, blocklist: list[str]) -> str | None:
+    """Reject staffing agencies / aggregators listed in gate.company_blocklist."""
+    if _norm_company(job.company) in {_norm_company(b) for b in blocklist}:
+        return f"blocklisted company: '{job.company}'"
+    return None
+
+
 def _gate_language(job: Job, allowed: list[str], german_ok: bool) -> str | None:
     """Return a reason string if the posting language is not acceptable."""
     lang = (job.language or "EN").upper()
@@ -161,6 +172,7 @@ def check(job: Job, *, countries: list[str] | None = None) -> Job:
 
     checks = [
         _gate_country(job, countries),
+        _gate_company(job, cfg.get("company_blocklist", [])),
         _gate_age(job, cfg["max_age_hours"]),
         _gate_role(job),
         _gate_domain(job),

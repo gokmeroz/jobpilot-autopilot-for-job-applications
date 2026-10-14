@@ -39,6 +39,30 @@ gate:
   max_yoe: 1
   languages: [EN, TR] # DE-language postings pass only if german_ok
   german_ok: true # candidate has B2 — accept German postings
+  # Staffing agencies / job aggregators that repost other companies' jobs.
+  # Matched against the company name, ignoring case, spaces and punctuation.
+  company_blocklist:
+    - Hire Feed
+    - Hired
+    - Quik Hire Staffing
+    - Jobgether
+    - Jack & Jill
+    - Jobright.ai
+    - Jobs Ai
+    - Jobs via Dice
+    - ChatGPT Jobs
+    - FetchJobs.co
+    - RemoteHunter
+    - Joinrs
+    - hackajob
+    - WE ARE DEVELOPERS
+    - European Tech Recruit
+    - Hunter Bond
+    - HeadFirst Group
+    - Talenthaus
+    # AI-training gig platforms
+    - DataAnnotation
+    - Alignerr
 
 score:
   threshold: 6.5
