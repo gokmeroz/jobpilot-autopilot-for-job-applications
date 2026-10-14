@@ -25,30 +25,6 @@ log = logging.getLogger(__name__)
 SOURCE = "linkedin"
 SOURCE_TIER = 1
 
-# (keywords, location) — location="" means LinkedIn searches globally / remote
-_SEARCH_MATRIX: list[tuple[str, str]] = [
-    # Germany — primary relocation target
-    ("junior software engineer",         "Germany"),
-    ("graduate software engineer",        "Germany"),
-    ("backend developer junior",          "Germany"),
-    ("full stack developer junior",       "Germany"),
-    ("AI engineer entry level",           "Germany"),
-    # Netherlands
-    ("junior software engineer",         "Netherlands"),
-    ("backend developer junior",          "Netherlands"),
-    # Ireland
-    ("junior software engineer",         "Ireland"),
-    # United Kingdom
-    ("junior software engineer",         "United Kingdom"),
-    ("backend developer junior",          "United Kingdom"),
-    # Remote worldwide / US remote
-    ("junior software engineer remote",  ""),
-    ("backend developer remote",         ""),
-    ("full stack engineer remote",       ""),
-    # Turkey (fallback market)
-    ("junior software engineer",         "Turkey"),
-]
-
 # LinkedIn URL filter params
 # f_TPR: r86400=24h, r604800=week
 # f_E:   1=internship, 2=entry level, 3=associate
@@ -229,6 +205,7 @@ def _build_actor_input(
 
 def fetch(
     search_matrix: list[tuple[str, str]] | None = None,
+    markets: list[str] | None = None,
 ) -> list[Job]:
     """
     Discover LinkedIn jobs via Apify. Runs a matrix of role+location queries,
@@ -241,7 +218,11 @@ def fetch(
     timeout  = apify.get("timeout_secs", 300)
     pages    = apify.get("pages_per_query", 1)
 
-    matrix   = search_matrix or _SEARCH_MATRIX
+    from src.discover import search_terms
+    matrix   = search_matrix or search_terms.linkedin_matrix(markets)
+    if not matrix:
+        log.info("linkedin: no search markets for this run — skipping")
+        return []
     log.info("linkedin: starting Apify run — %d queries, actor=%s", len(matrix), actor_id)
 
     actor_input = _build_actor_input(matrix, pages)

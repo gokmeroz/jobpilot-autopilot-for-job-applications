@@ -119,7 +119,14 @@ _ADZUNA_TARGETS: list[tuple[str, str, str]] = [
 # Public fetch entry point
 # ---------------------------------------------------------------------------
 
-def fetch() -> list[Job]:
+def _in_markets(hint: str, markets: list[str] | None) -> bool:
+    if markets is None:
+        return True
+    # US graduate queries are all remote-oriented
+    return hint in markets or (hint == "US" and "REMOTE" in markets)
+
+
+def fetch(markets: list[str] | None = None) -> list[Job]:
     """
     Aggregate graduate-programme jobs from JSearch and Adzuna.
 
@@ -129,6 +136,8 @@ def fetch() -> list[Job]:
     """
     all_jobs: list[Job] = []
     seen: set[str] = set()
+    jsearch_queries = [q for q in _JSEARCH_QUERIES if _in_markets(q[1], markets)]
+    adzuna_targets  = [t for t in _ADZUNA_TARGETS if _in_markets(t[1], markets)]
 
     def _add(jobs: list[Job]) -> None:
         for job in jobs:
@@ -139,8 +148,8 @@ def fetch() -> list[Job]:
     # ── JSearch ──────────────────────────────────────────────────────────────
     try:
         from src.discover.apis.jsearch import fetch as _jsearch_fetch
-        log.info("graduate: running %d JSearch queries", len(_JSEARCH_QUERIES))
-        jobs = _jsearch_fetch(queries=_JSEARCH_QUERIES)
+        log.info("graduate: running %d JSearch queries", len(jsearch_queries))
+        jobs = _jsearch_fetch(queries=jsearch_queries) if jsearch_queries else []
         _add(jobs)
         log.info("graduate: JSearch returned %d jobs", len(jobs))
     except Exception as exc:
@@ -149,8 +158,8 @@ def fetch() -> list[Job]:
     # ── Adzuna ───────────────────────────────────────────────────────────────
     try:
         from src.discover.apis.adzuna import fetch as _adzuna_fetch
-        log.info("graduate: running %d Adzuna queries", len(_ADZUNA_TARGETS))
-        jobs = _adzuna_fetch(targets=_ADZUNA_TARGETS)
+        log.info("graduate: running %d Adzuna queries", len(adzuna_targets))
+        jobs = _adzuna_fetch(targets=adzuna_targets) if adzuna_targets else []
         _add(jobs)
         log.info("graduate: Adzuna returned %d unique new jobs", len(jobs))
     except Exception as exc:

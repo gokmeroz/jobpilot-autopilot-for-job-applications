@@ -33,23 +33,6 @@ _VISA_RE = re.compile(
 _YOE_RE = re.compile(r"(\d+)\+?\s*years?\s+of\s+(professional\s+)?experience", re.IGNORECASE)
 _DE_WORDS = re.compile(r"\b(und|oder|mit|für|die|der|das|ein|eine|als|bei|von|zu)\b", re.I)
 
-# Search queries: (query_string, country_hint)
-# country_hint is used as fallback when JSearch doesn't return a country
-_QUERIES: list[tuple[str, str]] = [
-    ("junior software engineer Germany",        "DE"),
-    ("graduate software engineer Germany",      "DE"),
-    ("junior backend developer Germany",        "DE"),
-    ("junior software engineer Netherlands",    "NL"),
-    ("junior backend developer Netherlands",    "NL"),
-    ("junior software engineer Ireland",        "IE"),
-    ("junior software engineer United Kingdom", "GB"),
-    ("junior backend developer United Kingdom", "GB"),
-    ("junior software engineer remote",         "REMOTE"),
-    ("backend developer junior remote",         "REMOTE"),
-    ("AI engineer entry level remote",          "REMOTE"),
-    ("full stack developer junior remote",      "REMOTE"),
-]
-
 
 def _parse_salary(raw: dict) -> str | None:
     lo = raw.get("job_min_salary")
@@ -168,19 +151,24 @@ def _fetch_query(query: str, country_hint: str, api_key: str,
 
 def fetch(
     queries: list[tuple[str, str]] | None = None,
+    markets: list[str] | None = None,
     num_pages: int = 1,
     request_delay: float = 0.6,
 ) -> list[Job]:
     """
     Fetch jobs from JSearch (RapidAPI). Requires JSEARCH_API_KEY env var.
     Silently returns [] if the key is missing.
+
+    queries: explicit query matrix; otherwise built from config.yaml `search:`
+    markets: optional ISO2/REMOTE allow-list narrowing the search markets
     """
     api_key = env("JSEARCH_API_KEY")
     if not api_key:
         log.info("jsearch: JSEARCH_API_KEY not set — skipping")
         return []
 
-    matrix = queries or _QUERIES
+    from src.discover import search_terms
+    matrix = queries or search_terms.jsearch_queries(markets)
     log.info("jsearch: running %d queries", len(matrix))
 
     seen: set[str] = set()

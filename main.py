@@ -16,6 +16,9 @@ Usage:
     python main.py --source linkedin      # only LinkedIn via Apify (needs APIFY_TOKEN)
     python main.py --source graduate      # only graduate programmes (JSearch + Adzuna)
     python main.py --dry-run              # discover + gate only, no LLM calls
+    python main.py --countries TR         # this run only: keep Turkey jobs, drop abroad
+    python main.py --eu --remote          # region presets: --turkey --eu --uk --eu-uk --remote --all
+    python main.py --manual-only          # never auto-apply; everything goes to the manual queue
     python main.py --run-id my-run-001    # override the run ID
     python main.py -v                     # verbose logging
 """
@@ -55,7 +58,14 @@ def _setup_logging(verbose: bool) -> None:
     logging.getLogger("gspread").setLevel(logging.WARNING)
 
 
-def _discover(sources: list[str]) -> list:
+def _discover(
+    sources: list[str],
+    run_id: str,
+    *,
+    force: bool = False,
+    countries: list[str] | None = None,
+) -> list:
+    from src import ledger
     from src.discover.apis.arbeitnow import fetch as arbeitnow_fetch
     from src.discover.apis.remoteok import fetch as remoteok_fetch
     from src.discover.apis.remotive import fetch as remotive_fetch
@@ -70,64 +80,63 @@ def _discover(sources: list[str]) -> list:
     from src.discover.ats.lever import fetch as lever_fetch
     from src.discover.scrapers.linkedin import fetch as linkedin_fetch
     from src.discover.scrapers.wellfound import fetch as wellfound_fetch
+    from src.source_health import validate_source_health
+
+    # (source_id, display label, fetch fn) — health-checked uniformly below.
+    fetchers = [
+        ("greenhouse", "Greenhouse", greenhouse_fetch),
+        ("lever", "Lever", lever_fetch),
+        ("ashby", "Ashby", ashby_fetch),
+        ("arbeitnow", "Arbeitnow", arbeitnow_fetch),
+        ("remotive", "Remotive", remotive_fetch),
+        ("weworkremotely", "WeWorkRemotely", wwr_fetch),
+        ("remoteok", "RemoteOK", remoteok_fetch),
+        ("relocateme", "Relocate.me", relocateme_fetch),
+        ("ukhired", "UKHired", ukhired_fetch),
+        ("wellfound", "Wellfound (via Apify)", wellfound_fetch),
+        ("jsearch", "JSearch (RapidAPI)", jsearch_fetch),
+        ("adzuna", "Adzuna", adzuna_fetch),
+        ("linkedin", "LinkedIn (via Apify)", linkedin_fetch),
+        ("graduate", "graduate programmes (JSearch + Adzuna)", graduate_fetch),
+    ]
+
+    # Keyword-search sources only query the markets selected for this run;
+    # company-board sources fetch everything and the gate filters by country.
+    if countries is not None:
+        from functools import partial
+        _search_sources = {"jsearch", "adzuna", "linkedin", "graduate"}
+        fetchers = [
+            (sid, label, partial(fn, markets=countries) if sid in _search_sources else fn)
+            for sid, label, fn in fetchers
+        ]
 
     jobs = []
+    health_results = []
 
-    if "greenhouse" in sources:
-        print("Fetching from Greenhouse…")
-        jobs += greenhouse_fetch()
+    for source_id, label, fetch_fn in fetchers:
+        if source_id not in sources:
+            continue
 
-    if "lever" in sources:
-        print("Fetching from Lever…")
-        jobs += lever_fetch()
+        if not force and ledger.is_source_disabled(source_id):
+            print(f"Skipping {label} — marked broken; run `--source {source_id}` to retry and re-enable.")
+            continue
 
-    if "ashby" in sources:
-        print("Fetching from Ashby…")
-        jobs += ashby_fetch()
+        print(f"Fetching from {label}…")
+        source_jobs = fetch_fn()
+        jobs += source_jobs
 
-    if "arbeitnow" in sources:
-        print("Fetching from Arbeitnow…")
-        jobs += arbeitnow_fetch()
+        health = validate_source_health(source_id, source_jobs, run_id, retry_fn=fetch_fn)
+        health_results.append((label, health))
+        if health.verdict != "healthy":
+            print(f"  ⚠ source health: {health.verdict.upper()} — {health.reason}")
 
-    if "remotive" in sources:
-        print("Fetching from Remotive…")
-        jobs += remotive_fetch()
-
-    if "weworkremotely" in sources:
-        print("Fetching from WeWorkRemotely…")
-        jobs += wwr_fetch()
-
-    if "remoteok" in sources:
-        print("Fetching from RemoteOK…")
-        jobs += remoteok_fetch()
-
-    if "relocateme" in sources:
-        print("Fetching from Relocate.me…")
-        jobs += relocateme_fetch()
-
-    if "ukhired" in sources:
-        print("Fetching from UKHired…")
-        jobs += ukhired_fetch()
-
-    if "wellfound" in sources:
-        print("Fetching from Wellfound (via Apify)…")
-        jobs += wellfound_fetch()
-
-    if "jsearch" in sources:
-        print("Fetching from JSearch (RapidAPI)…")
-        jobs += jsearch_fetch()
-
-    if "adzuna" in sources:
-        print("Fetching from Adzuna…")
-        jobs += adzuna_fetch()
-
-    if "linkedin" in sources:
-        print("Fetching from LinkedIn (via Apify)…")
-        jobs += linkedin_fetch()
-
-    if "graduate" in sources:
-        print("Fetching graduate programmes (JSearch + Adzuna)…")
-        jobs += graduate_fetch()
+    if health_results:
+        flagged = [(label, h) for label, h in health_results if h.verdict != "healthy"]
+        if flagged:
+            print(f"\n── Source Health ({len(flagged)} flagged) ─────────────────")
+            for label, h in flagged:
+                print(f"  {h.verdict.upper():<12} {label} — {h.reason}")
+            print("────────────────────────────────────────────────────────")
 
     # Expand: for any job whose URL points to a new Greenhouse/Ashby/Lever
     # company not already in sources.yaml, fetch ALL their open jobs.
@@ -142,11 +151,11 @@ def _discover(sources: list[str]) -> list:
     return jobs
 
 
-def _dry_run(jobs: list) -> None:
+def _dry_run(jobs: list, countries: list[str] | None = None) -> None:
     from src import gate, ledger
 
     ledger.init()
-    passed, gated = gate.run(jobs)
+    passed, gated = gate.run(jobs, countries=countries)
     new, dupes = ledger.filter_new(passed)
 
     print(f"\n── Dry Run Results ───────────────────────────────")
@@ -225,7 +234,7 @@ def _sync_sheet(applied: list, queued: list) -> None:
         print(f"\n  Sheet sync failed: {exc}\n")
 
 
-def _interactive_review(result) -> None:
+def _interactive_review(result, manual_only: bool = False) -> None:
     from src import ledger
     from src.apply.runner import apply_batch
     from src.models import Route, Status
@@ -235,8 +244,12 @@ def _interactive_review(result) -> None:
         print("\nNo jobs above threshold — nothing to review.")
         return
 
-    auto_candidates = [j for j in all_jobs if j.route == Route.auto]
-    manual_candidates = [j for j in all_jobs if j.route != Route.auto]
+    if manual_only:
+        auto_candidates = []
+        manual_candidates = list(all_jobs)
+    else:
+        auto_candidates = [j for j in all_jobs if j.route == Route.auto]
+        manual_candidates = [j for j in all_jobs if j.route != Route.auto]
 
     applied:      list = []
     needs_manual: list = []   # auto-apply failures fall back here
@@ -278,6 +291,8 @@ def _interactive_review(result) -> None:
             for job in needs_manual:
                 reason = getattr(job, "fail_reason", "") or ""
                 print(f"    • {job.title} @ {job.company} — {reason[:80]}")
+    elif manual_only:
+        print(f"\n  ── STAGE 1: AUTO-APPLY ── skipped (--manual-only)")
     else:
         print(f"\n  ── STAGE 1: AUTO-APPLY ──")
         print("  No auto-apply jobs this run. (Need Greenhouse/Ashby/Lever/Workable URL + score > 6.5)")
@@ -411,6 +426,29 @@ def _parse_args() -> argparse.Namespace:
         help="Discover and gate only — no LLM scoring, no sheet writes",
     )
     parser.add_argument(
+        "--countries",
+        metavar="CODES",
+        default=None,
+        help="Comma-separated country codes to keep for this run only, e.g. TR or "
+             "TR,REMOTE (ISO2 or REMOTE). Everything else is gated out. Default: no restriction",
+    )
+    regions = parser.add_argument_group(
+        "regions",
+        "Limit the run to a region (combinable, e.g. --eu --remote; also unions with --countries). "
+        "Narrows both the keyword searches and the country gate.",
+    )
+    for name, help_text in [
+        ("turkey", "Turkey only (TR)"),
+        ("eu",     "EU countries (searches DE, NL, IE)"),
+        ("uk",     "United Kingdom only (GB)"),
+        ("eu-uk",  "EU + United Kingdom"),
+        ("remote", "Fully remote jobs only"),
+        ("all",    "No country restriction (default)"),
+    ]:
+        regions.add_argument(
+            f"--{name}", dest="regions", action="append_const", const=name, help=help_text,
+        )
+    parser.add_argument(
         "--run-id",
         default=None,
         help="Override the auto-generated run ID",
@@ -420,6 +458,12 @@ def _parse_args() -> argparse.Namespace:
         metavar="PATH",
         default=None,
         help="Replay a previous review file: parse jobs from it and go straight to apply",
+    )
+    parser.add_argument(
+        "--manual-only",
+        action="store_true",
+        help="Never auto-apply: every scored job goes to the manual queue + sheet. "
+             "Same as mode: manual_only in config.yaml",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -433,6 +477,10 @@ def main() -> int:
     args = _parse_args()
     _setup_logging(args.verbose)
 
+    from src.config import load as _load_cfg
+    mode = _load_cfg("config").get("mode", "review_first")
+    manual_only = args.manual_only or mode == "manual_only"
+
     # Replay a previous review file without re-running discovery/scoring
     if args.resume_review:
         from src.pipeline import PipelineResult
@@ -441,15 +489,32 @@ def main() -> int:
         print(f"  Run ID : {run_id}")
         print(f"  Jobs   : {len(jobs)}")
         result = PipelineResult(run_id=run_id, jobs_for_review=jobs)
-        _interactive_review(result)
+        _interactive_review(result, manual_only=manual_only)
         return 0
 
+    from src import ledger
+    from src.pipeline import _make_run_id
+
+    ledger.init()
+    run_id = args.run_id or _make_run_id()
+
     sources = _ALL_SOURCES if args.source == "all" else [args.source]
+    explicit_single_source = args.source != "all"
+
+    from src.regions import resolve as _resolve_regions
+    countries = _resolve_regions(
+        args.regions,
+        [c.strip().upper() for c in args.countries.split(",") if c.strip()]
+        if args.countries else None,
+    )
 
     print(f"JobPilot — sources: {', '.join(sources)}"
-          + (" [DRY RUN]" if args.dry_run else ""))
+          + (f" — regions: {', '.join(args.regions)}" if args.regions
+             else f" — countries: {', '.join(countries)}" if countries else "")
+          + (" [DRY RUN]" if args.dry_run else "")
+          + (" [MANUAL ONLY]" if manual_only else ""))
 
-    jobs = _discover(sources)
+    jobs = _discover(sources, run_id, force=explicit_single_source, countries=countries)
 
     if not jobs:
         print("No jobs discovered — check your network or source config.")
@@ -458,17 +523,16 @@ def main() -> int:
     print(f"Discovered {len(jobs)} jobs total.")
 
     if args.dry_run:
-        _dry_run(jobs)
+        _dry_run(jobs, countries)
         return 0
 
-    from src.config import load as _load_cfg
     from src.pipeline import run as pipeline_run
-    result = pipeline_run(jobs, run_id=args.run_id)
+    result = pipeline_run(jobs, run_id=run_id, countries=countries, manual_only=manual_only)
 
-    if _load_cfg("config").get("mode") == "full_auto":
+    if mode == "full_auto" and not manual_only:
         return 0
 
-    _interactive_review(result)
+    _interactive_review(result, manual_only=manual_only)
     return 0
 
 

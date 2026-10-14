@@ -33,21 +33,6 @@ _VISA_RE = re.compile(
 _YOE_RE = re.compile(r"(\d+)\+?\s*years?\s+of\s+(professional\s+)?experience", re.IGNORECASE)
 _DE_WORDS = re.compile(r"\b(und|oder|mit|für|die|der|das|ein|eine|als|bei|von|zu)\b", re.I)
 
-# (Adzuna country code, ISO-2 for our pipeline, search keywords)
-_TARGETS: list[tuple[str, str, str]] = [
-    ("de", "DE", "junior software engineer"),
-    ("de", "DE", "graduate software engineer"),
-    ("de", "DE", "backend developer junior"),
-    ("nl", "NL", "junior software engineer"),
-    ("nl", "NL", "backend developer junior"),
-    ("ie", "IE", "junior software engineer"),
-    ("gb", "GB", "junior software engineer"),
-    ("gb", "GB", "backend developer junior"),
-    ("us", "US", "junior software engineer remote"),
-    ("us", "US", "junior backend developer remote"),
-    ("us", "US", "AI engineer entry level remote"),
-]
-
 
 def _parse_salary(raw: dict) -> str | None:
     lo = raw.get("salary_min")
@@ -160,6 +145,7 @@ def _fetch_target(adzuna_cc: str, iso2: str, keywords: str,
 
 def fetch(
     targets: list[tuple[str, str, str]] | None = None,
+    markets: list[str] | None = None,
     request_delay: float = 0.5,
 ) -> list[Job]:
     """
@@ -174,7 +160,8 @@ def fetch(
 
     cfg = load("config")
     max_age_hours: float = cfg["gate"]["max_age_hours"]
-    matrix = targets or _TARGETS
+    from src.discover import search_terms
+    matrix = targets or search_terms.adzuna_targets(markets)
 
     log.info("adzuna: running %d queries", len(matrix))
 

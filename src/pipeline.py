@@ -235,7 +235,13 @@ def _make_run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 
-def run(jobs: list[Job], *, run_id: str | None = None) -> PipelineResult:
+def run(
+    jobs: list[Job],
+    *,
+    run_id: str | None = None,
+    countries: list[str] | None = None,
+    manual_only: bool = False,
+) -> PipelineResult:
     """
     Run the full pipeline on a list of discovered Job objects.
 
@@ -254,7 +260,7 @@ def run(jobs: list[Job], *, run_id: str | None = None) -> PipelineResult:
     ledger.init()
 
     # 2. Gate
-    passed, gated = gate.run(jobs)
+    passed, gated = gate.run(jobs, countries=countries)
     result.gated_out = len(gated)
 
     # 2b. Within-batch dedup: for same job_key prefer ATS URL over LinkedIn URL
@@ -292,10 +298,11 @@ def run(jobs: list[Job], *, run_id: str | None = None) -> PipelineResult:
     result.jobs_for_review = sorted_planned
     result.review_file = _write_review_file(sorted_planned, run_id, cfg)
 
-    # 9. Stop here if review_first — human must confirm before applying
-    if mode == "review_first":
+    # 9. Stop here unless full_auto — human must confirm (or apply manually)
+    if mode != "full_auto" or manual_only:
         log.info(
-            "mode=review_first — stopping. Review %s then confirm to apply.",
+            "mode=%s — stopping. Review %s then confirm to apply.",
+            "manual_only" if manual_only else mode,
             result.review_file.name,
         )
         result.report_file = _write_report(result, cfg)

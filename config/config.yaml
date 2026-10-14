@@ -1,8 +1,34 @@
-mode: review_first # review_first | full_auto
+mode: review_first # review_first | full_auto | manual_only (never auto-apply)
 
 markets:
   countries: [DE, NL, IE, GB, TR]
   remote_worldwide: true
+
+# Keyword search matrix for JSearch, Adzuna and LinkedIn: every role is
+# searched in every market (roles × markets queries per source, per run).
+# Region flags (--eu, --turkey, ...) narrow the markets for that run.
+# Trim roles here if API quota / Apify cost gets too high.
+search:
+  roles:
+    - junior software engineer
+    - graduate software engineer
+    - new grad software engineer
+    - associate software engineer
+    - junior backend developer
+    - junior full stack developer
+    - junior frontend developer
+    - junior python developer
+    - junior node.js developer
+    - junior AI engineer
+    - product engineer
+    - solutions engineer
+  markets: # ISO2 (or REMOTE) -> name used in the search query
+    DE: Germany
+    NL: Netherlands
+    IE: Ireland
+    GB: United Kingdom
+    TR: Turkey
+    REMOTE: remote
 
 limits:
   per_country_min: 15 # discovery target, not a guarantee
@@ -36,6 +62,10 @@ apply:
   # human_like: add randomized delays and mouse movements between field fills
   # to reduce bot-detection by ATS platforms. Slightly slower but much safer.
   human_like: true
+
+source_health:
+  auto_disable_broken: false # if true, a source verdicted "broken" is skipped on future `--source all` runs until an explicit `--source <id>` run recovers it (human confirmation)
+  min_avg_for_yield_drop: 3 # only flag a 0-result run as broken if the historical average was at least this many results — avoids false positives on naturally tiny/flaky sources
 
 paths:
   runs: runs
