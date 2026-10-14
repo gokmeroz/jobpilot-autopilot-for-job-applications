@@ -77,6 +77,11 @@ def _assign_plan(job: Job, cfg: dict) -> Job:
     return job.model_copy(update={"route": route, "cover_letter": cover_path})
 
 
+def _md_cell(value) -> str:
+    """Escape a value for a markdown table cell — titles like 'Dev | AI Engineer' would shift columns."""
+    return str(value).replace("|", "\\|").replace("\n", " ")
+
+
 def _manual_reason(job: Job) -> str:
     return job.fail_reason or job.gate_reason or "manual application required"
 
@@ -107,8 +112,8 @@ def _write_review_file(jobs: list[Job], run_id: str, cfg: dict) -> Path:
         salary = job.salary or "—"
         remote = job.remote.value.title()
         lines.append(
-            f"| {i} | {job.title} | {job.company} | {job.country} "
-            f"| {remote} | {salary} | {score} | {job.apply_url} |"
+            f"| {i} | {_md_cell(job.title)} | {_md_cell(job.company)} | {job.country} "
+            f"| {remote} | {_md_cell(salary)} | {score} | {_md_cell(job.apply_url)} |"
         )
 
     path.write_text("\n".join(lines) + "\n")
@@ -158,8 +163,9 @@ def _write_report(result: PipelineResult, cfg: dict) -> Path:
     for i, job in enumerate(result.jobs_for_review, 1):
         score = f"{job.score.total:.1f}" if job.score else "—"
         lines.append(
-            f"| {i} | {job.title} | {job.company} | {job.country} "
-            f"| {job.remote.value.title()} | {job.salary or '—'} | {score} | {job.apply_url} |"
+            f"| {i} | {_md_cell(job.title)} | {_md_cell(job.company)} | {job.country} "
+            f"| {job.remote.value.title()} | {_md_cell(job.salary or '—')} | {score} "
+            f"| {_md_cell(job.apply_url)} |"
         )
 
     lines += [
@@ -194,8 +200,8 @@ def _write_report(result: PipelineResult, cfg: dict) -> Path:
         ]
         for job in result.manual_required_jobs:
             lines.append(
-                f"| {job.title} | {job.company} | {job.country} | {job.ats or '—'} "
-                f"| {_manual_reason(job)} | {job.apply_url} |"
+                f"| {_md_cell(job.title)} | {_md_cell(job.company)} | {job.country} | {job.ats or '—'} "
+                f"| {_md_cell(_manual_reason(job))} | {_md_cell(job.apply_url)} |"
             )
     else:
         lines.append("None.")

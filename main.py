@@ -367,17 +367,20 @@ def _parse_review_file(path: str):
 
     jobs: list[Job] = []
     for line in p.read_text().splitlines():
-        # New format: | N | score | ats | title | company | country | salary | (no url in review file)
-        # Old format: | N | title | company | country | type | salary | score | url |
-        # Try old format first (review .md files have the url)
-        m = _re.match(
-            r"\|\s*\d+\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([\d.]+)\s*\|\s*(.+?)\s*\|",
-            line,
-        )
-        if not m:
+        # | N | title | company | country | type | salary | score | url |
+        # Pipes inside cells are written escaped (\|). Older files didn't escape
+        # them, so a title like "Dev | AI Engineer" spills into extra cells —
+        # anchor the other fields from the right and rejoin the spill into the title.
+        if not line.startswith("|"):
             continue
-        title, company, country, remote_str, salary_raw, score_str, apply_url = m.groups()
-        if title in ("Role", "#", "Score"):
+        cells = [c.strip().replace("\\|", "|") for c in _re.split(r"(?<!\\)\|", line)[1:-1]]
+        if len(cells) < 8 or not cells[0].isdigit():
+            continue
+        *title_parts, company, country, remote_str, salary_raw, score_str, apply_url = cells[1:]
+        title = " | ".join(title_parts)
+        try:
+            float(score_str)
+        except ValueError:
             continue
         salary = salary_raw.strip() if salary_raw.strip() not in ("—", "-", "") else None
         remote_type = _REMOTE_MAP.get(remote_str.strip().lower(), RemoteType.unknown)
