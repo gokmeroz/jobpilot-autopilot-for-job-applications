@@ -20,17 +20,15 @@ _TECH_TITLE_RE = re.compile(
     # domain-qualified engineer / developer
     r"(?:backend|back[\s\-]?end|frontend|front[\s\-]?end|"
     r"fullstack|full[\s\-]?stack|platform|cloud|mobile|"
-    r"infrastructure|embedded|applications?)\s+(?:engineer|developer)|"
+    r"infrastructure|applications?)\s+(?:engineer|developer)|"
     # technology-prefixed engineer / developer (language / framework)
     r"(?:node(?:\.js)?|react(?:\.js)?|next(?:\.js)?|vue(?:\.js)?|angular|"
     r"typescript|javascript|python|java(?:script)?|kotlin|swift|ruby|rails|"
     r"golang|go|rust|php|django|fastapi|spring|laravel|elixir|scala|clojure)"
     r"\s+(?:engineer|developer)|"
-    # devops / SRE
-    r"(?:devops|dev[\s\-]ops)\b|\bsre\b|site\s+reliability\s+engineer|"
     # AI / ML / LLM
     r"(?:ai|ml|llm|machine[\s\-]?learning|deep[\s\-]?learning|"
-    r"generative[\s\-]ai|applied[\s\-]ai|data)\s+(?:engineer|scientist)|"
+    r"generative[\s\-]ai|applied[\s\-]ai|data)\s+engineer|"
     r"ai\s+[\w\-]+\s+engineer|"      # AI [qualifier] Engineer: AI Integration, AI Application…
     # product / solutions
     r"product\s+engineer|solutions?\s+engineer|"
@@ -96,10 +94,14 @@ def _gate_seniority(job: Job) -> str | None:
     return None
 
 
-# Title keywords that indicate industrial / defence / ERP domains the
-# candidate explicitly does not target — checked after _gate_role passes.
+# Title keywords that indicate industrial / defence / ERP domains, or tech
+# tracks outside the target roles (ops, embedded, research science) — checked
+# after _gate_role passes, so they also catch "DevOps Developer" etc.
 _DOMAIN_DENYLIST_RE = re.compile(
     r"\b("
+    r"devops|dev[\s\-]ops|sre|site\s+reliability|"
+    r"embedded|firmware|"
+    r"(?:data|research|ml|machine[\s\-]?learning|applied)\s+scientist|"
     r"scada|"
     r"oil\s+[&+]?\s*gas|"
     r"(?:radar|sonar|lidar)\s+software|radar\s+engineer|"

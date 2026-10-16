@@ -183,6 +183,23 @@ class TestGateDomain:
     def test_servicenow_rejected(self):
         assert not self._passes("ServiceNow Developer")
 
+    def test_non_target_tech_tracks_rejected(self):
+        for title in (
+            "Junior DevOps Engineer",
+            "DevOps Developer",
+            "SRE",
+            "Site Reliability Engineer",
+            "Junior Embedded Software Engineer",
+            "Firmware Developer",
+            "Junior Data Scientist",
+            "Research Scientist, LLMs",
+        ):
+            assert not self._passes(title), title
+
+    def test_target_ai_titles_pass(self):
+        for title in ("Applied AI Engineer", "LLM Engineer", "Junior ML Engineer", "Data Engineer"):
+            assert self._passes(title), title
+
 
 # ── Full run() ────────────────────────────────────────────────────────────────
 
