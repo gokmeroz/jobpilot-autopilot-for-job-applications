@@ -26,7 +26,7 @@ _CHAR_MAP = str.maketrans({
     "“": '"',   # left double quotation mark
     "”": '"',   # right double quotation mark
     "–": "-",   # en dash
-    "—": "--",  # em dash
+    "—": "-",   # em dash ("--" would toggle strikethrough in markdown mode)
     "…": "...", # horizontal ellipsis
     " ": " ",   # non-breaking space
 })
@@ -67,7 +67,7 @@ def generate_pdf(cover_letter_text: str) -> Path:
     w = pdf.epw  # effective page width respects margins
     for line in safe_text.splitlines():
         if line.strip():
-            pdf.multi_cell(w, 6, line.strip())
+            pdf.multi_cell(w, 6, line.strip(), markdown=True, new_x="LMARGIN", new_y="NEXT")  # **bold** highlights
         else:
             pdf.ln(4)
 

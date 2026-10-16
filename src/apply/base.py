@@ -142,8 +142,10 @@ class BaseFormFiller(ABC):
         if self._cl_pdf_path and self._cl_pdf_path.exists():
             return self._cl_pdf_path
         from src.apply.cover_letter_pdf import generate_pdf
-        cl_text = self._cl_text or self.candidate.cover_letter_text(
-            self.job.title, self.job.company
+        short = self.job.cover_letter == self.cfg["apply"]["cover_letter_short"]
+        cl_text = self.candidate.cover_letter_text(
+            self.job.title, self.job.company, short=short,
+            description=self.job.description, markup=True,
         )
         self._cl_pdf_path = generate_pdf(cl_text)
         return self._cl_pdf_path

@@ -16,6 +16,7 @@ from src.config import ROOT, env, load
 log = logging.getLogger(__name__)
 
 
+@lru_cache(maxsize=32)  # PDF + textarea renders of one job must get the same fills
 def _fill_cover_letter_placeholders(
     job_title: str,
     company: str,
@@ -152,7 +153,10 @@ class CandidateData:
         company: str,
         short: bool = True,
         description: str = "",
+        markup: bool = False,
     ) -> str:
+        """Fill the cover letter template. `**bold**` highlights are kept only with
+        markup=True (PDF upload); text pasted into form fields gets them stripped."""
         path = self.cover_letter_short if short else self.cover_letter_long
         text = path.read_text()
         text = text.replace("<ROLE>", job_title)
@@ -169,7 +173,7 @@ class CandidateData:
                 reason = reason[0].lower() + reason[1:]
             text = text.replace("<PERSONAL_REASON_ABOUT_COMPANY>", reason)
 
-        return text
+        return text if markup else text.replace("**", "")
 
 
 # ---------------------------------------------------------------------------

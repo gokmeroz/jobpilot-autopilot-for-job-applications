@@ -81,7 +81,7 @@ apply:
   max_attempts: 2
   allow_select_fallback: true  # true = choose first non-placeholder option for unknown dropdowns
   resume_file: assets/resume/resume.pdf
-  cover_letter_short: assets/cover_letters/cover_letter_short.md
+  cover_letter_short: assets/cover_letters/cover_letter_long.md # one letter for every application
   cover_letter_long: assets/cover_letters/cover_letter_long.md
 
   # Stealth mode: activates the full anti-bot-detection stack.
