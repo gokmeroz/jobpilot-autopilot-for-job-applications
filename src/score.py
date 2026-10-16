@@ -8,6 +8,7 @@ from anthropic import Anthropic
 
 from src.config import ROOT, env, load
 from src.models import Job, Score, Status
+from src.resume import resume_markdown
 
 log = logging.getLogger(__name__)
 
@@ -24,8 +25,31 @@ _SYSTEM = (
 )
 
 
+# CANDIDATE.md sections that carry contact details or form-only answers. They
+# don't inform fit and shouldn't leave the machine in every scoring call.
+_PROFILE_EXCLUDED_SECTIONS = ("identity", "logistics", "eeo", "hard rule")
+
+
+def _strip_sections(markdown: str, excluded: tuple[str, ...]) -> str:
+    """Drop every `## <heading>` section whose heading starts with an excluded name."""
+    kept: list[str] = []
+    skipping = False
+    for line in markdown.splitlines():
+        if line.startswith("## "):
+            skipping = line[3:].strip().lower().startswith(excluded)
+        if not skipping:
+            kept.append(line)
+    return "\n".join(kept).strip()
+
+
 def _candidate_profile() -> str:
-    return (ROOT / "CANDIDATE.md").read_text()
+    profile = _strip_sections((ROOT / "CANDIDATE.md").read_text(), _PROFILE_EXCLUDED_SECTIONS)
+    resume = resume_markdown()
+    if resume:
+        # Demote resume headings one level so they nest under "## Resume".
+        resume = re.sub(r"^(#{2,3}) ", r"#\1 ", resume, flags=re.MULTILINE)
+        profile += f"\n\n## Resume (extracted from the PDF submitted with applications)\n\n{resume}"
+    return profile
 
 
 def _build_prompt(job: Job) -> str:

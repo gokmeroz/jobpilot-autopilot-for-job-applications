@@ -2,7 +2,7 @@ PYTHON  = .venv/bin/python
 PIP     = .venv/bin/pip
 SOURCE ?= all
 
-.PHONY: help setup run dry-run source test-greenhouse test-ashby lint clean clean-runs replay
+.PHONY: help setup run dry-run source resume test-greenhouse test-ashby lint clean clean-runs replay
 
 # ── Default target ────────────────────────────────────────────────────────────
 help:
@@ -45,6 +45,9 @@ source: ## Run one source: make source SOURCE=greenhouse
 
 source-v: ## Run one source with verbose logging: make source-v SOURCE=ashby
 	$(PYTHON) main.py --source $(SOURCE) -v
+
+resume: ## Rebuild assets/resume/resume.md from the PDF and print it (what the scorer sees)
+	$(PYTHON) -m src.resume
 
 REVIEW_FILE ?= $(shell ls -t manual_queue/*_review.md 2>/dev/null | head -1)
 

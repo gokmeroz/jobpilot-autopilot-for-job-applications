@@ -18,7 +18,7 @@
 - LinkedIn: <https://linkedin.com/in/...>
 - Portfolio: <https://...>
 
-## Profile summary (PII-free — used verbatim in LLM scoring prompts)
+## Profile summary (PII-free — sent in LLM scoring prompts)
 
 <2–3 sentences: stack, shipped products, experience level. No name, no
 contact details — this text leaves the machine in API calls.>
