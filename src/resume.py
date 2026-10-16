@@ -1,7 +1,7 @@
 """
 Resume PDF → Markdown for the LLM scoring prompt.
 
-The PDF at `apply.resume_file` stays the file we upload to ATS forms; this
+The PDFs in `apply.resume_files` stay the files we upload to ATS forms; this
 module turns its text into Markdown so the scorer sees every skill and metric
 on it, not just what was hand-copied into CANDIDATE.md.
 
@@ -11,8 +11,11 @@ on it, not just what was hand-copied into CANDIDATE.md.
   (name, phone, email, profile links) is dropped, and any remaining email
   addresses, phone numbers, and CANDIDATE.md identity values are removed.
   This text leaves the machine in API calls.
-- The result is cached next to the PDF (resume.pdf → resume.md) and rebuilt
-  only when the PDF's hash changes.
+- The result is cached next to the PDF (X.pdf → X.md) and rebuilt only when
+  the PDF's hash changes.
+- Two resumes ("tracks", `apply.resume_files`): "ai" for AI/ML/LLM titles,
+  "swe" for everything else. resume_track() picks one per job; the same pick
+  drives both the upload and the scoring prompt.
 
 Regenerate and inspect by hand:  make resume
 """
@@ -36,15 +39,45 @@ _BULLET     = re.compile(r"^[•●▪◦■\-*]\s*")
 _EMAIL      = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 # Single separators only, so "122E085      11/2023" (code + right-aligned date) isn't a phone.
 _PHONE      = re.compile(r"\+?\d(?:[ ().-]?\d){8,}")
-_DATE_RANGE = re.compile(r"\d{2}/\d{4}\s*[–-]\s*(?:\d{2}/\d{4}|Present)", re.IGNORECASE)
+_DATE       = r"(?:\d{2}/\d{4}|[A-Z][a-z]{2,8}\.? \d{4})"   # 04/2025 or Apr 2025
+_DATE_RANGE = re.compile(rf"{_DATE}\s*[–-]\s*(?:{_DATE}|Present)", re.IGNORECASE)
+_SECTION_WORDS = re.compile(
+    r"\b(summary|profile|experience|employment|education|projects?|skills|languages|"
+    r"certifications?|publications?|awards|interests|volunteering)\b",
+    re.IGNORECASE,
+)
+# Titles that get the AI resume. Mixed titles ("AI Software Engineer") count as AI.
+_AI_TITLE_RE = re.compile(
+    r"\b(ai|ml|llm|llms|genai|gen[\s-]ai|generative|machine[\s-]?learning|deep[\s-]?learning|"
+    r"computer[\s-]vision|nlp|mlops|data[\s-]scien\w*)\b",
+    re.IGNORECASE,
+)
+
+TRACKS = ("swe", "ai")
 _LABEL      = re.compile(r"^[A-Z][\w &/+-]{1,30}:\s")  # "Languages: Python, ..."
 _HASH_LINE  =re.compile(r"^<!-- source-sha256: ([0-9a-f]{64})")
 
 
-def _is_heading(line: str) -> bool:
-    """Section headings on resumes are short all-caps lines: 'PROFESSIONAL EXPERIENCE'."""
+def resume_track(title: str) -> str:
+    """'ai' if the job title mentions AI/ML/LLM, else 'swe'."""
+    return "ai" if _AI_TITLE_RE.search(title or "") else "swe"
+
+
+def _is_caps(line: str) -> bool:
+    # ≥4 letters so wrapped acronyms ("SQL", "AWS") aren't taken for company names.
     letters = [c for c in line if c.isalpha()]
-    return 4 <= len(line) <= 40 and len(letters) >= 4 and line == line.upper()
+    return len(letters) >= 4 and line == line.upper()
+
+
+def _is_heading(line: str) -> bool:
+    """Section headings are short all-caps lines naming a section: 'WORK EXPERIENCE'."""
+    return len(line) <= 40 and _is_caps(line) and bool(_SECTION_WORDS.search(line))
+
+
+def _is_entry_header(line: str) -> bool:
+    """'HALKBANK · Istanbul', 'REPROBOT — Multi-Agent …', or a line with a date range."""
+    head = re.split(r" · | — ", line, maxsplit=1)[0]
+    return _is_caps(head) or bool(_DATE_RANGE.search(line))
 
 
 def _redact(line: str, terms: list[str]) -> str:
@@ -84,8 +117,8 @@ def to_markdown(text: str, redact_terms: list[str] | None = None) -> str:
 
         if is_bullet:
             out.append("- " + line)
-        elif _DATE_RANGE.search(line):
-            out.append(f"\n### {line}")  # entry header: "Company — tagline · 04/2025 – 07/2025"
+        elif _is_entry_header(line):
+            out.append(f"\n### {line}")  # "Company — tagline · 04/2025 – 07/2025"
         elif (
             prev
             and not prev.startswith(("\n", "#"))
@@ -134,16 +167,16 @@ def _identity_terms() -> list[str]:
     return terms
 
 
-def resume_md_path() -> Path:
-    return (ROOT / load("config")["apply"]["resume_file"]).with_suffix(".md")
+def resume_pdf_path(track: str) -> Path:
+    return ROOT / load("config")["apply"]["resume_files"][track]
 
 
-def build_resume_markdown(force: bool = False) -> str:
-    """Return the redacted resume Markdown, regenerating the cache if the PDF changed.
+def build_resume_markdown(track: str, force: bool = False) -> str:
+    """Return the track's redacted resume Markdown, regenerating the cache if the PDF changed.
 
     Returns "" when there is no resume PDF — scoring then runs on CANDIDATE.md alone.
     """
-    pdf_path = ROOT / load("config")["apply"]["resume_file"]
+    pdf_path = resume_pdf_path(track)
     md_path  = pdf_path.with_suffix(".md")
     if not pdf_path.exists():
         log.warning("resume: %s not found — scoring without resume", pdf_path)
@@ -165,13 +198,15 @@ def build_resume_markdown(force: bool = False) -> str:
     return body
 
 
-@lru_cache(maxsize=1)
-def resume_markdown() -> str:
+@lru_cache(maxsize=None)
+def resume_markdown(track: str) -> str:
     """Cached per process — the scorer calls this once per job."""
-    return build_resume_markdown()
+    return build_resume_markdown(track)
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    print(build_resume_markdown(force=True))
-    print(f"--- written to {resume_md_path().relative_to(ROOT)} ---")
+    for t in TRACKS:
+        print(f"===== {t.upper()} resume =====\n")
+        print(build_resume_markdown(t, force=True))
+        print(f"--- written to {resume_pdf_path(t).with_suffix('.md').relative_to(ROOT)} ---\n")

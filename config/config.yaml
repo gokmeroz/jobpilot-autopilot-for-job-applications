@@ -80,7 +80,12 @@ apply:
   headless: true
   max_attempts: 2
   allow_select_fallback: true  # true = choose first non-placeholder option for unknown dropdowns
-  resume_file: assets/resume/resume.pdf
+  # Per-job resume, uploaded and used for scoring. "ai" when the title mentions
+  # AI/ML/LLM (see src/resume.py resume_track), "swe" otherwise. Same filename in
+  # both folders so recruiters never see which variant they got.
+  resume_files:
+    swe: assets/resume/swe/Goktug_Mert_Ozdogan_Resume.pdf
+    ai: assets/resume/ai/Goktug_Mert_Ozdogan_Resume.pdf
   cover_letter_short: assets/cover_letters/cover_letter_long.md # one letter for every application
   cover_letter_long: assets/cover_letters/cover_letter_long.md
 

@@ -8,7 +8,7 @@ from anthropic import Anthropic
 
 from src.config import ROOT, env, load
 from src.models import Job, Score, Status
-from src.resume import resume_markdown
+from src.resume import resume_markdown, resume_track
 
 log = logging.getLogger(__name__)
 
@@ -42,9 +42,9 @@ def _strip_sections(markdown: str, excluded: tuple[str, ...]) -> str:
     return "\n".join(kept).strip()
 
 
-def _candidate_profile() -> str:
+def _candidate_profile(track: str) -> str:
     profile = _strip_sections((ROOT / "CANDIDATE.md").read_text(), _PROFILE_EXCLUDED_SECTIONS)
-    resume = resume_markdown()
+    resume = resume_markdown(track)
     if resume:
         # Demote resume headings one level so they nest under "## Resume".
         resume = re.sub(r"^(#{2,3}) ", r"#\1 ", resume, flags=re.MULTILINE)
@@ -55,7 +55,7 @@ def _candidate_profile() -> str:
 def _build_prompt(job: Job) -> str:
     return f"""\
 ## Candidate Profile
-{_candidate_profile()}
+{_candidate_profile(resume_track(job.title))}
 
 ## Job to Score
 Country: {job.country}

@@ -4,6 +4,7 @@ saves evidence, and returns an ApplicationResult.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import random
 import time
@@ -18,6 +19,7 @@ except ImportError:
 
 from src.apply.base import ApplicationResult, BaseFormFiller, NeedsUserInput
 from src.apply.candidate import load_candidate
+from src.resume import resume_track
 from src.apply.forms.ashby_form import AshbyForm
 from src.apply.forms.bamboohr_form import BambooHRForm
 from src.apply.forms.breezy_form import BreezyForm
@@ -134,6 +136,9 @@ def apply_job(job: Job, run_id: str) -> ApplicationResult:
     """
     cfg = load("config")
     candidate = load_candidate()
+    track = resume_track(job.title)
+    candidate = dataclasses.replace(candidate, resume_path=candidate.resume_paths[track])
+    log.info("resume: %s track for %s @ %s", track, job.title, job.company)
     apply_cfg = cfg["apply"]
     evidence = _evidence_dir(job, run_id)
 

@@ -56,11 +56,13 @@ and **denies reads of `.env`, `secrets/`, `.piipatterns`**. Tune with `/permissi
    `docs.google.com/spreadsheets/d/<SHEET_ID>/edit`). Apify/Adzuna keys can wait.
 2. **`CANDIDATE.md`** — fill every section. The pipeline refuses to answer any
    form question it can't derive from this file.
-3. **`assets/resume/resume.pdf`** — your ATS resume (filename must match
-   `apply.resume_file` in `config/config.yaml`). The scorer reads it too: it's
-   converted to Markdown with contact details redacted, cached as
-   `assets/resume/resume.md`, and rebuilt whenever the PDF changes. Run
-   `make resume` to check the result. Scanned PDFs need `brew install tesseract`.
+3. **`assets/resume/{swe,ai}/<name>.pdf`** — two ATS resumes, paths set in
+   `apply.resume_files` in `config/config.yaml`. Jobs whose title mentions
+   AI/ML/LLM get the `ai` one, everything else `swe` — for both the upload and
+   scoring. Use the same filename in both folders; recruiters see it. The scorer
+   reads each as Markdown with contact details redacted, cached next to the PDF
+   and rebuilt whenever it changes. Run `make resume` to check both. Scanned
+   PDFs need `brew install tesseract`.
 4. **`assets/cover_letters/*.md`** — edit the two copied templates.
 5. **`.piipatterns`** — one regex per line (your email, phone, surname); the
    pre-commit hook blocks any staged diff matching them.

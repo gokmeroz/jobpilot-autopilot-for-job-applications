@@ -105,7 +105,8 @@ class CandidateData:
     projects_text: str
 
     # File paths
-    resume_path: Path
+    resume_path: Path              # the one fillers upload; runner sets it per job
+    resume_paths: dict[str, Path]  # {"swe": ..., "ai": ...}
     cover_letter_short: Path
     cover_letter_long: Path
 
@@ -273,7 +274,8 @@ def load_candidate() -> CandidateData:
         twitter_url=_extract(r"^- Twitter:\s*(https?://\S+)", text),
         projects_text=_parse_projects_text(text),
 
-        resume_path=ROOT / cfg["apply"]["resume_file"],
+        resume_path=ROOT / cfg["apply"]["resume_files"]["swe"],
+        resume_paths={k: ROOT / v for k, v in cfg["apply"]["resume_files"].items()},
         cover_letter_short=ROOT / cfg["apply"]["cover_letter_short"],
         cover_letter_long=ROOT / cfg["apply"]["cover_letter_long"],
 

@@ -1,8 +1,10 @@
 """Resume text → Markdown conversion and the scoring-profile section filter."""
 from __future__ import annotations
 
+import pytest
+
 from src import score
-from src.resume import to_markdown
+from src.resume import resume_track, to_markdown
 
 _RAW = """\
             JANE EXAMPLE DOE
@@ -96,3 +98,40 @@ Do not answer.
     assert "Work authorization" in out
     for gone in ("Jane Doe", "+49", "Notice period", "Salary", "Gender", "Do not answer"):
         assert gone not in out
+
+
+# ── Track selection: which resume a job gets ─────────────────────────────────
+
+
+@pytest.mark.parametrize("title", [
+    "Junior AI Engineer", "AI Software Engineer", "Applied AI Engineer", "LLM Engineer",
+    "Machine Learning Engineer, New Grad", "Junior ML Engineer", "GenAI Developer",
+    "Product Engineer (AI)", "Computer Vision Engineer", "NLP Engineer",
+])
+def test_ai_titles_get_ai_resume(title):
+    assert resume_track(title) == "ai"
+
+
+@pytest.mark.parametrize("title", [
+    "Junior Software Engineer", "Backend Developer", "Full Stack Engineer",
+    "Product Engineer", "Solutions Engineer", "HTML Email Developer", "Email Platform Engineer",
+])
+def test_other_titles_get_swe_resume(title):
+    assert resume_track(title) == "swe"
+
+
+def test_caps_company_lines_and_month_dates():
+    raw = """\
+WORK EXPERIENCE
+HALKBANK                                    Istanbul, Turkey
+Full-Stack Intern                          Apr 2025 - Jul 2025
+ • Built things.
+PROJECTS
+REPROBOT — Multi-Agent LLM System          github.com/x/ReproBot
+"""
+    md = to_markdown(raw)
+    assert "## Work Experience" in md
+    assert "### HALKBANK · Istanbul, Turkey" in md
+    assert "### Full-Stack Intern · Apr 2025 - Jul 2025" in md
+    assert "### REPROBOT — Multi-Agent LLM System" in md
+    assert "## Halkbank" not in md  # company names are not sections
