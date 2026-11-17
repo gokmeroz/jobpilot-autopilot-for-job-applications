@@ -32,13 +32,46 @@ class Status(str, Enum):
 
 
 class Score(BaseModel):
-    role: float
-    stack: float
-    seniority: float
-    visa: float
-    culture: float
+    """0–100 fit score (weights: tech 30, experience 25, seniority 20,
+    alignment 15, location 10). Visa sponsorship is NOT inside it — see
+    Sponsorship. Legacy fields (role/stack/visa/culture) stay for old
+    review files replayed with --resume-review."""
     total: float
     rationale: str = ""
+    tech: float = 0.0
+    experience: float = 0.0
+    seniority: float = 0.0
+    alignment: float = 0.0
+    location: float = 0.0
+    role: float = 0.0
+    stack: float = 0.0
+    visa: float = 0.0
+    culture: float = 0.0
+
+
+class FitDetail(BaseModel):
+    fit_class: str = ""                    # Strong / Good / Stretch / Not recommended
+    career_path: str = ""                  # ai_ml / backend_fullstack / forward_deployed / graduate
+    matching_skills: list[str] = Field(default_factory=list)
+    missing_mandatory: list[str] = Field(default_factory=list)
+    missing_preferred: list[str] = Field(default_factory=list)
+    experience_required: str = ""
+    strongest_project: str = ""
+    positioning: str = ""
+    risks: list[str] = Field(default_factory=list)
+    hard_blocker: str | None = None        # incompatible mandatory condition
+    language_requirement: str = ""
+
+
+class Sponsorship(BaseModel):
+    category: str = "C"                    # A explicit / B possible / C unknown / D restricted / "-" not needed
+    evidence: str = ""
+    evidence_url: str | None = None
+    evidence_type: str = ""                # posting / sponsor_register / directory / board / llm_quote
+    offshore: str = "Unknown"              # Confirmed / Possible / Unknown / Restricted
+    visa_pathway: str = ""
+    salary_eligibility: str = ""           # AU only: meets CSIT / below CSIT / unverified
+    verified_at: str = ""
 
 
 class Job(BaseModel):
@@ -64,6 +97,10 @@ class Job(BaseModel):
     visa_signal: bool = False
 
     score: Score | None = None
+    fit: FitDetail | None = None
+    sponsorship: Sponsorship | None = None
+    recommended_resume: str | None = None  # "ai" | "swe"
+    verification: str | None = None        # open / closed / unverified (+ reason)
     route: Route | None = None
     cover_letter: str | None = None        # path chosen at plan stage
     status: Status = Status.new

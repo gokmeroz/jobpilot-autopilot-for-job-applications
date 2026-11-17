@@ -1,48 +1,116 @@
 mode: review_first # review_first | full_auto | manual_only (never auto-apply)
 
 markets:
-  countries: [DE, NL, IE, GB, TR]
+  countries: [US, GB, IE, DE, NL, CH, CA, AT, BE, IT, LU, TR, AU]
   remote_worldwide: true
 
-# Keyword search matrix for JSearch, Adzuna and LinkedIn: every role is
-# searched in every market (roles × markets queries per source, per run).
-# Region flags (--eu, --turkey, ...) narrow the markets for that run.
-# Trim roles here if API quota / Apify cost gets too high.
+# ---------------------------------------------------------------------------
+# Search profile — role families × geography tiers × freshness windows.
+# Keyword-search sources (LinkedIn, JSearch, Adzuna, SEEK) query
+# `paid_roles` (cost-bounded) in every selected market; free sources fetch
+# everything and the gate filters with the full family title list.
+# Region flags (--eu, --us, --australia, --tier1 ...) narrow the markets.
+# ---------------------------------------------------------------------------
 search:
-  roles:
+  families:
+    ai_ml:            # Priority A — AI & Applied ML
+      priority: A
+      roles:
+        - AI Engineer
+        - Junior AI Engineer
+        - Applied AI Engineer
+        - LLM Engineer
+        - Generative AI Engineer
+        - AI Agent Engineer
+        - Agentic AI Engineer
+        - RAG Engineer
+        - Machine Learning Engineer
+        - AI Software Engineer
+        - Research Engineer Applied AI
+    software:         # Priority B — Software Engineering
+      priority: B
+      roles:
+        - Software Engineer
+        - Software Developer
+        - Backend Engineer
+        - Full Stack Engineer
+        - Python Developer
+        - .NET Developer
+        - C# Developer
+        - Node.js Developer
+        - API Engineer
+        - Platform Software Engineer
+        - AI Integration Engineer
+    adjacent:         # Priority C — Adjacent Engineering
+      priority: C
+      roles:
+        - Forward Deployed Engineer
+        - Forward Deployed Software Engineer
+        - Solutions Engineer
+        - AI Automation Engineer
+        - Developer Tools Engineer
+        - Junior Infrastructure Engineer
+        - Graduate Software Engineer
+        - Associate Software Engineer
+  # Paid sources (Apify LinkedIn/SEEK, JSearch) run roles × markets queries —
+  # keep this list short; the gate still accepts every family title above.
+  paid_roles:
     - junior software engineer
     - graduate software engineer
-    - new grad software engineer
-    - associate software engineer
-    - junior backend developer
-    - junior full stack developer
-    - junior frontend developer
-    - junior python developer
-    - junior node.js developer
-    - junior AI engineer
-    - software engineer I
-    - junior backend engineer
-    - junior full stack engineer
-    - LLM engineer
+    - backend engineer
+    - full stack engineer
+    - AI engineer
     - applied AI engineer
-    - AI application engineer
-    - product engineer
-    - solutions engineer
-  markets: # ISO2 (or REMOTE) -> name used in the search query
-    DE: Germany
-    NL: Netherlands
-    IE: Ireland
-    GB: United Kingdom
-    TR: Turkey
-    REMOTE: remote
+    - LLM engineer
+    - machine learning engineer
+    - forward deployed engineer
+    - python developer
+    - .NET developer
+  # Extra queries per market for sponsorship-first discovery (job-first approach A).
+  sponsorship_queries:
+    AU: [software engineer visa sponsorship, software engineer 482 visa, AI engineer visa sponsorship, graduate software engineer sponsorship]
+    GB: [software engineer visa sponsorship, graduate software engineer skilled worker visa]
+    IE: [software engineer visa sponsorship]
+    DE: [software engineer relocation visa]
+    NL: [software engineer relocation visa sponsorship]
+    US: [software engineer H1B sponsorship new grad]
+    CA: [software engineer visa sponsorship]
+  # ISO2 (or REMOTE) -> name used in the search query. Tier drives ranking + --tierN flags.
+  markets:
+    US: {name: United States, tier: 1, cities: [New York, Boston, Seattle, San Francisco]}
+    GB: {name: United Kingdom, tier: 1, cities: [London, Manchester, Edinburgh, Cambridge, Bristol]}
+    IE: {name: Ireland, tier: 1, cities: [Dublin, Cork, Galway]}
+    DE: {name: Germany, tier: 2, cities: [Berlin, Munich, Hamburg, Frankfurt, Cologne]}
+    NL: {name: Netherlands, tier: 2, cities: [Amsterdam, Rotterdam, Eindhoven, Utrecht]}
+    CH: {name: Switzerland, tier: 2, cities: [Zurich, Geneva, Lausanne]}
+    CA: {name: Canada, tier: 2, cities: [Toronto, Vancouver, Montreal, Ottawa]}
+    AT: {name: Austria, tier: 3}
+    BE: {name: Belgium, tier: 3}
+    IT: {name: Italy, tier: 3}
+    LU: {name: Luxembourg, tier: 3}
+    TR: {name: Turkey, tier: 3, cities: [Istanbul]}
+    AU: {name: Australia, tier: 3, cities: [Sydney, Melbourne, Brisbane, Perth, Adelaide, Canberra]}
+    REMOTE: {name: remote, tier: 3}
+
+# Freshness: the first run (empty tracker) looks back `initial_hours`;
+# later runs look back to the previous run, clamped to [min, max] so a
+# delayed index is still caught. `--window 24h|72h|7d|30d` overrides.
+freshness:
+  initial_hours: 720         # 30 days on the first run (7-day results ranked first)
+  subsequent_min_hours: 72   # always re-check at least 72h for delayed indexing
+  subsequent_max_hours: 168  # 7 days
+  buckets: [24, 72, 168]     # report grouping: last 24h / 72h / 7d / older
+
+# Spend guard for Apify actors per session (USD). Runs beyond it need --apify-budget.
+apify_budget_usd: 5.0
 
 limits:
   per_country_min: 15 # discovery target, not a guarantee
   turkey_max: 50
 
 gate:
-  max_age_hours: 24
-  max_yoe: 1
+  max_age_hours: 720 # overwritten at runtime by `freshness` (see src/freshness.py)
+  max_yoe: 2 # junior / graduate / early-career; explicit 3+ YOE is gated out
   languages: [EN, TR] # DE-language postings pass only if german_ok
   german_ok: true # candidate has B2 — accept German postings
   # Staffing agencies / job aggregators that repost other companies' jobs.
@@ -71,9 +139,10 @@ gate:
     - Alignerr
 
 score:
-  threshold: 6.5
+  threshold: 65   # 0–100 fit score: 80+ strong, 65–79 good, 50–64 stretch (report only)
+  stretch_min: 50
   model: claude-haiku-4-5-20251001  # fast + cheap for scoring; swap to claude-sonnet-4-6 for higher quality
-  max_llm_calls_per_run: 200 # cost guard; prescore must cut volume below this
+  max_llm_calls_per_run: 300 # cost guard; prescore must cut volume below this
 
 apply:
   dry_run: false  # true = fill + screenshot, never click submit
@@ -133,6 +202,13 @@ sheet:
     GB: "UK / England"
     TR: Turkey
     US: USA
+    CH: Switzerland
+    CA: Canada
+    AU: Australia
+    AT: Austria
+    BE: Belgium
+    IT: Italy
+    LU: Luxembourg
     REMOTE: Worldwide
 
 ghost_after_days: 21
@@ -141,4 +217,25 @@ apify:
   actor_id: "curious_coder/linkedin-jobs-scraper"
   wellfound_actor_id: "crawlerbros/wellfound-scraper"
   timeout_secs: 300       # max seconds to wait for actor run
-  pages_per_query: 1      # results per search URL (25 jobs/page)
+  pages_per_query: 1      # pages per search URL (25 jobs/page)
+  # Cost estimate inputs (USD per dataset item, from each actor's Store pricing,
+  # FREE tier — checked 2026-11). Each actor's request is shrunk to fit its share.
+  price_per_result_usd:
+    curious_coder/linkedin-jobs-scraper: 0.002
+    websift/seek-job-scraper: 0.0025
+  budget_share: {linkedin: 0.6, seek: 0.3}
+  seek_actor_id: "websift/seek-job-scraper"   # input schema checked: searchTerm, dateRange, country, maxResults, sortBy
+  seek_max_results: 40    # per search term (capped further by budget_share)
+
+# Visa sponsorship evidence (company-level → category B only, never A).
+sponsorship:
+  citizenship: Turkish     # never assume existing US/UK/EU/CA/AU work rights
+  home_countries: [TR]     # no sponsorship needed here
+  uk_register: true        # gov.uk Register of Licensed Sponsors (Worker route)
+  au_directories: true     # SponsorMap + Applywave accredited-sponsor lists
+  cache_days: 7
+  # Subclass 482 Core Skills income threshold (AUD). Landed cites AUD 79,423 for
+  # nominations 1 Jul 2026 – 30 Jun 2027; confirm at immi.homeaffairs.gov.au and
+  # bump each July. Salary eligibility is reported as "unverified" without a salary.
+  au_csit_aud: 79423
+  au_csit_as_of: "2026-07-01"

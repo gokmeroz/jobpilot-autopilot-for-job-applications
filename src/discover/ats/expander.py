@@ -74,10 +74,11 @@ def expand(jobs: list[Job], request_delay: float = 0.5) -> list[Job]:
     known_ashby = _known_tokens(sources, "ashby")
     known_lever = _known_tokens(sources, "lever")
 
-    # Tokens we've queued this run (avoid fetching the same company twice)
-    queued_gh:    set[str] = set()
-    queued_ashby: set[str] = set()
-    queued_lever: set[str] = set()
+    # Tokens we've queued this run (avoid fetching the same company twice).
+    # Seed with boards already fetched by an ATS adapter this run (career_pages etc.).
+    queued_gh:    set[str] = {t for j in jobs if j.source == "greenhouse" and (t := _extract_greenhouse_token(j.apply_url or ""))}
+    queued_ashby: set[str] = {t for j in jobs if j.source == "ashby" and (t := _extract_ashby_handle(j.apply_url or ""))}
+    queued_lever: set[str] = {t for j in jobs if j.source == "lever" and (t := _extract_lever_slug(j.apply_url or ""))}
 
     extra: list[Job] = []
 

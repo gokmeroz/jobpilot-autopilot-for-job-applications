@@ -109,3 +109,14 @@ lever:
   Cloudinary:     cloudinary
   Intercom:       intercom
   Figma:          figma
+
+# ---------------------------------------------------------------------------
+# Direct career pages — research leads, NOT pre-verified openings. The fetcher
+# visits each page, follows ATS links (Greenhouse/Ashby/Lever) into the
+# expander, and logs coverage. Employers whose vacancies don't match are
+# simply scored low / excluded, never recommended by default.
+# ---------------------------------------------------------------------------
+career_pages:
+  Lyra Technologies: https://lyratechnologies.com.au/careers   # 482 sponsor; some junior roles require AU residence
+  Optiver: https://job-boards.greenhouse.io/optiverprivate     # relocation + visa support; many roles senior
+  # SCNITS Australia: add its official careers URL once verified

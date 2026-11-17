@@ -15,6 +15,14 @@ Usage:
     jobpilot --source wellfound         # only Wellfound via Apify (needs APIFY_TOKEN)
     jobpilot --source linkedin          # only LinkedIn via Apify (needs APIFY_TOKEN)
     jobpilot --source graduate          # only graduate programmes (JSearch + Adzuna)
+    jobpilot --source seek              # only SEEK Australia via Apify (needs APIFY_TOKEN)
+    jobpilot --source landed            # only Landed visa-sponsorship boards
+    jobpilot --source career_pages      # only direct employer career pages (sources.yaml)
+    jobpilot --window 24h               # freshness window override (24h, 72h, 7d, 30d; default auto)
+    jobpilot --australia --tier1        # more presets: --us --ireland --switzerland --canada --tier1/2/3
+    jobpilot --apify-budget 10          # raise the per-session Apify spend cap (default $5)
+    jobpilot --tracker md|csv|json      # print the job tracker and exit
+    jobpilot --set-status KEY=Interview # update a tracked job's application status
     jobpilot --dry-run                  # discover + gate only, no LLM calls
     jobpilot --countries TR             # this run only: keep Turkey jobs, drop abroad
     jobpilot --eu --remote              # region presets: --turkey --eu --uk --eu-uk --remote --all
@@ -43,6 +51,9 @@ _ALL_SOURCES = [
     "adzuna",
     "linkedin",
     "graduate",
+    "seek",
+    "landed",
+    "career_pages",
 ]
 
 
@@ -64,7 +75,9 @@ def _discover(
     *,
     force: bool = False,
     countries: list[str] | None = None,
+    coverage: list[dict] | None = None,
 ) -> list:
+    coverage = coverage if coverage is not None else []
     from src import ledger
     from src.discover.apis.arbeitnow import fetch as arbeitnow_fetch
     from src.discover.apis.remoteok import fetch as remoteok_fetch
@@ -80,6 +93,10 @@ def _discover(
     from src.discover.ats.lever import fetch as lever_fetch
     from src.discover.scrapers.linkedin import fetch as linkedin_fetch
     from src.discover.scrapers.wellfound import fetch as wellfound_fetch
+    from src.discover.scrapers.seek import fetch as seek_fetch
+    from src.discover.apis.landed import fetch as landed_fetch
+    from src.discover.ats.career_pages import fetch as career_fetch
+    from src.discover import search_terms
     from src.source_health import validate_source_health
 
     # (source_id, display label, fetch fn) — health-checked uniformly below.
@@ -98,17 +115,28 @@ def _discover(
         ("adzuna", "Adzuna", adzuna_fetch),
         ("linkedin", "LinkedIn (via Apify)", linkedin_fetch),
         ("graduate", "graduate programmes (JSearch + Adzuna)", graduate_fetch),
+        ("seek", "SEEK Australia (via Apify)", seek_fetch),
+        ("landed", "Landed (visa-sponsorship boards)", landed_fetch),
+        ("career_pages", "Direct career pages", career_fetch),
     ]
 
     # Keyword-search sources only query the markets selected for this run;
     # company-board sources fetch everything and the gate filters by country.
     if countries is not None:
         from functools import partial
-        _search_sources = {"jsearch", "adzuna", "linkedin", "graduate"}
+        _search_sources = {"jsearch", "adzuna", "linkedin", "graduate", "seek", "landed"}
         fetchers = [
             (sid, label, partial(fn, markets=countries) if sid in _search_sources else fn)
             for sid, label, fn in fetchers
         ]
+
+    # Query counts for the coverage log (what was actually asked of each source).
+    query_counts = {
+        "linkedin": f"{len(search_terms.linkedin_matrix(countries))} search URLs",
+        "jsearch": f"{len(search_terms.jsearch_queries(countries))} queries",
+        "adzuna": f"{len(search_terms.adzuna_targets(countries))} queries",
+        "seek": f"{len(search_terms.seek_terms())} terms" if countries is None or "AU" in countries else "skipped (AU not selected)",
+    }
 
     jobs = []
     health_results = []
@@ -119,14 +147,24 @@ def _discover(
 
         if not force and ledger.is_source_disabled(source_id):
             print(f"Skipping {label} — marked broken; run `--source {source_id}` to retry and re-enable.")
+            coverage.append({"source": source_id, "label": label, "records": 0, "verdict": "disabled",
+                             "note": "marked broken by source health"})
             continue
 
         print(f"Fetching from {label}…")
-        source_jobs = fetch_fn()
+        try:
+            source_jobs = fetch_fn()
+        except Exception as exc:   # one failing source must not sink the search
+            print(f"  ✗ {label} failed: {exc}")
+            coverage.append({"source": source_id, "label": label, "records": 0, "verdict": "error", "note": str(exc)[:120]})
+            continue
         jobs += source_jobs
 
         health = validate_source_health(source_id, source_jobs, run_id, retry_fn=fetch_fn)
         health_results.append((label, health))
+        coverage.append({"source": source_id, "label": label, "records": len(source_jobs),
+                         "queries": query_counts.get(source_id, "full listing"),
+                         "verdict": health.verdict, "note": "" if health.verdict == "healthy" else health.reason})
         if health.verdict != "healthy":
             print(f"  ⚠ source health: {health.verdict.upper()} — {health.reason}")
 
@@ -147,6 +185,8 @@ def _discover(
         added = len(jobs) - before
         if added:
             print(f"Expander: discovered {added} additional jobs from new ATS companies.")
+        coverage.append({"source": "expander", "label": "ATS expander (boards linked from postings)",
+                         "records": added, "queries": "new Greenhouse/Ashby/Lever boards", "verdict": "healthy", "note": ""})
 
     return jobs
 
@@ -181,7 +221,7 @@ def _print_review_table(jobs: list, offset: int = 0) -> None:
     print(f"  {'#':<4} {'Score':<6} {'ATS':<14} {'Role':<34} {'Company':<20} {'Ctry':<6} Salary")
     print(f"{'─' * W}")
     for i, job in enumerate(jobs, offset + 1):
-        score   = f"{job.score.total:.1f}" if job.score else "—"
+        score   = str(int(job.score.total)) if job.score else "—"
         ats     = (job.ats or "—")[:13]
         title   = (job.title[:31] + "…") if len(job.title) > 32 else job.title
         company = (job.company[:17] + "…") if len(job.company) > 18 else job.company
@@ -295,9 +335,12 @@ def _interactive_review(result, manual_only: bool = False) -> None:
         print(f"\n  ── STAGE 1: AUTO-APPLY ── skipped (--manual-only)")
     else:
         print(f"\n  ── STAGE 1: AUTO-APPLY ──")
-        print("  No auto-apply jobs this run. (Need Greenhouse/Ashby/Lever/Workable URL + score > 6.5)")
+        print("  No auto-apply jobs this run. (Need a supported ATS URL + score ≥ threshold)")
 
     _sync_sheet(applied, [])
+    if applied:
+        from src import tracker
+        tracker.mark_applied([j.job_key for j in applied])
 
     # ════════════════════════════════════════════════════════════════════════
     # STAGE 2 — MANUAL
@@ -446,6 +489,14 @@ def _parse_args() -> argparse.Namespace:
         ("uk",     "United Kingdom only (GB)"),
         ("eu-uk",  "EU + United Kingdom"),
         ("remote", "Fully remote jobs only"),
+        ("us",          "United States only"),
+        ("ireland",     "Ireland only"),
+        ("switzerland", "Switzerland only"),
+        ("canada",      "Canada only"),
+        ("australia",   "Australia only (SEEK, Landed, AU sponsor lists)"),
+        ("tier1",       "Tier 1: US, UK, Ireland"),
+        ("tier2",       "Tier 2: Germany, Netherlands, Switzerland, Canada"),
+        ("tier3",       "Tier 3: AT, BE, IT, LU, Türkiye, Australia, worldwide remote"),
         ("all",    "No country restriction (default)"),
     ]:
         regions.add_argument(
@@ -469,6 +520,33 @@ def _parse_args() -> argparse.Namespace:
              "Same as mode: manual_only in config.yaml",
     )
     parser.add_argument(
+        "--window",
+        metavar="SPAN",
+        default=None,
+        help="Freshness window: 24h, 72h, 7d, 30d. Default: 30d on the first run, "
+             "then time since the last run clamped to 72h..7d",
+    )
+    parser.add_argument(
+        "--apify-budget",
+        type=float,
+        metavar="USD",
+        default=None,
+        help="Apify spend cap for this session (default: apify_budget_usd in config, $5)",
+    )
+    parser.add_argument(
+        "--tracker",
+        choices=["md", "csv", "json"],
+        default=None,
+        help="Print the job tracker (Markdown table, CSV or JSON) and exit",
+    )
+    parser.add_argument(
+        "--set-status",
+        metavar="JOB_ID=STATUS",
+        default=None,
+        help="Set a tracked job's application status (Not Applied, Applied, Assessment, "
+             "Interview, Rejected, Offer, Closed) and exit",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable debug logging",
@@ -483,6 +561,21 @@ def main() -> int:
     from src.config import load as _load_cfg
     mode = _load_cfg("config").get("mode", "review_first")
     manual_only = args.manual_only or mode == "manual_only"
+
+    if args.tracker or args.set_status:
+        from src import report, tracker
+        if args.set_status:
+            job_id, _, status = args.set_status.partition("=")
+            ok = tracker.set_status(job_id.strip(), status.strip())
+            print(f"{'Updated' if ok else 'No tracked job with id'} {job_id.strip()} → {status.strip()}")
+            return 0 if ok else 1
+        rows = tracker.all_rows()
+        if not rows:
+            print("Tracker is empty — run a search first.")
+            return 0
+        out = {"md": report.tracker_markdown, "csv": tracker.to_csv, "json": tracker.to_json}[args.tracker](rows)
+        print(out)
+        return 0
 
     # Replay a previous review file without re-running discovery/scoring
     if args.resume_review:
@@ -511,13 +604,23 @@ def main() -> int:
         if args.countries else None,
     )
 
+    from src import freshness, tracker
+    if args.apify_budget is not None:
+        from src.discover.scrapers.apify_runner import BUDGET
+        BUDGET.limit_usd = args.apify_budget
+    last = tracker.last_run_at()
+    window = freshness.choose_hours(last, args.window)
+    freshness.apply(window)
+
     print(f"JobPilot — sources: {', '.join(sources)}"
           + (f" — regions: {', '.join(args.regions)}" if args.regions
              else f" — countries: {', '.join(countries)}" if countries else "")
+          + f" — window: {window:.0f}h" + (" (first run)" if last is None and not args.window else "")
           + (" [DRY RUN]" if args.dry_run else "")
           + (" [MANUAL ONLY]" if manual_only else ""))
 
-    jobs = _discover(sources, run_id, force=explicit_single_source, countries=countries)
+    coverage: list[dict] = []
+    jobs = _discover(sources, run_id, force=explicit_single_source, countries=countries, coverage=coverage)
 
     if not jobs:
         print("No jobs discovered — check your network or source config.")
@@ -530,7 +633,8 @@ def main() -> int:
         return 0
 
     from src.pipeline import run as pipeline_run
-    result = pipeline_run(jobs, run_id=run_id, countries=countries, manual_only=manual_only)
+    result = pipeline_run(jobs, run_id=run_id, countries=countries, manual_only=manual_only, coverage=coverage)
+    tracker.record_run(run_id, window)
 
     if mode == "full_auto" and not manual_only:
         return 0

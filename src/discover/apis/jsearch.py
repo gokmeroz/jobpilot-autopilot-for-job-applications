@@ -34,6 +34,12 @@ _YOE_RE = re.compile(r"(\d+)\+?\s*years?\s+of\s+(professional\s+)?experience", r
 _DE_WORDS = re.compile(r"\b(und|oder|mit|für|die|der|das|ein|eine|als|bei|von|zu)\b", re.I)
 
 
+def _date_posted() -> str:
+    """JSearch date filter matching this run's freshness window."""
+    hours = float(load("config")["gate"]["max_age_hours"])
+    return "today" if hours <= 24 else "3days" if hours <= 72 else "week" if hours <= 168 else "month"
+
+
 def _parse_salary(raw: dict) -> str | None:
     lo = raw.get("job_min_salary")
     hi = raw.get("job_max_salary")
@@ -123,7 +129,7 @@ def _fetch_query(query: str, country_hint: str, api_key: str,
                     "query":       query,
                     "page":        page,
                     "num_pages":   1,
-                    "date_posted": "3days",
+                    "date_posted": _date_posted(),
                 },
                 timeout=20,
             )

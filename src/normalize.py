@@ -28,6 +28,8 @@ _COUNTRY_HINTS: dict[str, str] = {
     "united states": "US", "usa": "US", "new york": "US", "san francisco": "US",
     "seattle": "US", "boston": "US", "austin": "US", "chicago": "US",
     "los angeles": "US", "denver": "US", "atlanta": "US", "miami": "US",
+    "new york city": "US", "nyc": "US", "palo alto": "US", "mountain view": "US",
+    "cambridge, ma": "US",
     # Portugal
     "portugal": "PT", "lisbon": "PT", "porto": "PT", "braga": "PT",
     # Spain
@@ -48,6 +50,7 @@ _COUNTRY_HINTS: dict[str, str] = {
     "finland": "FI", "helsinki": "FI",
     # Switzerland
     "switzerland": "CH", "zurich": "CH", "zürich": "CH", "geneva": "CH",
+    "lausanne": "CH", "basel": "CH", "bern": "CH",
     # Austria
     "austria": "AT", "vienna": "AT", "wien": "AT",
     # Belgium
@@ -72,8 +75,14 @@ _COUNTRY_HINTS: dict[str, str] = {
     "singapore": "SG",
     # Australia
     "australia": "AU", "sydney": "AU", "melbourne": "AU", "brisbane": "AU",
+    "perth": "AU", "adelaide": "AU", "canberra": "AU", "new south wales": "AU",
+    "victoria, au": "AU", "queensland": "AU",
     # Canada
     "canada": "CA", "toronto": "CA", "vancouver": "CA", "montreal": "CA",
+    "montréal": "CA", "ottawa": "CA", "waterloo, on": "CA", "calgary": "CA",
+    # Italy / Luxembourg
+    "italy": "IT", "milan": "IT", "milano": "IT", "rome": "IT", "turin": "IT",
+    "luxembourg": "LU",
     # India
     "india": "IN", "bangalore": "IN", "bengaluru": "IN", "mumbai": "IN",
     "hyderabad": "IN", "pune": "IN",
@@ -123,9 +132,13 @@ def build_job_key(company: str, title: str, country: str) -> str:
     return f"{slug(company)}__{slug(title)}__{slug(country)}"
 
 
+# Longest hint first so "cambridge, ma" (US) wins over "cambridge" (GB).
+_HINTS_LONGEST_FIRST = sorted(_COUNTRY_HINTS.items(), key=lambda kv: -len(kv[0]))
+
+
 def country_from_location(location: str) -> str:
     lower = location.lower()
-    for hint, iso2 in _COUNTRY_HINTS.items():
+    for hint, iso2 in _HINTS_LONGEST_FIRST:
         if hint in lower:
             return iso2
     return "REMOTE"

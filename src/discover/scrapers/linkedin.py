@@ -30,7 +30,14 @@ SOURCE_TIER = 1
 # f_E:   1=internship, 2=entry level, 3=associate
 # f_JT:  F=full-time
 _LI_BASE = "https://www.linkedin.com/jobs/search/"
-_LI_PARAMS = "f_TPR=r86400&f_E=2%2C3&f_JT=F"
+_LI_FILTERS = "f_E=1%2C2%2C3&f_JT=F"   # internship, entry, associate; full-time
+
+
+def _tpr() -> str:
+    """LinkedIn time-posted filter matching this run's freshness window."""
+    hours = float(load("config")["gate"]["max_age_hours"])
+    seconds = 86400 if hours <= 24 else 604800 if hours <= 168 else 2592000
+    return f"f_TPR=r{seconds}"
 
 # Derived from normalize._ATS_DOMAINS so it stays in sync with all registered fillers.
 _ATS_MAP = _ATS_DOMAINS
@@ -173,7 +180,7 @@ def _parse_job(raw: dict) -> Job | None:
 def _build_search_url(keywords: str, location: str) -> str:
     from urllib.parse import urlencode
     params = {"keywords": keywords, **({} if not location else {"location": location})}
-    return f"{_LI_BASE}?{urlencode(params)}&{_LI_PARAMS}"
+    return f"{_LI_BASE}?{urlencode(params)}&{_tpr()}&{_LI_FILTERS}"
 
 
 def _build_actor_input(
@@ -226,6 +233,11 @@ def fetch(
     log.info("linkedin: starting Apify run — %d queries, actor=%s", len(matrix), actor_id)
 
     actor_input = _build_actor_input(matrix, pages)
+    from src.discover.scrapers.apify_runner import affordable_results
+    actor_input["count"] = affordable_results(actor_id, "linkedin", actor_input["count"])
+    if actor_input["count"] < 10:
+        log.warning("linkedin: Apify budget exhausted — skipping")
+        return []
 
     try:
         raw_items = run_actor(actor_id, actor_input, timeout_secs=timeout)

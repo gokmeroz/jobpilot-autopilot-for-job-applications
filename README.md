@@ -48,16 +48,21 @@ All incoming jobs are converted into a unified `Job` schema (`src/models.py`). F
 
 ### 3. Gate
 Fast rule-based pre-filter before any LLM call. Configurable per run:
-- Max age (e.g. 48 hours)
-- Max experience requirement (e.g. 0–1 years)
+- Freshness window (`freshness:` — 30 days on the first run, then time since the last run clamped to 72h–7d; `--window 24h|72h|7d|30d` overrides)
+- Role families A/B/C (`search.families` — AI/ML, software, adjacent/forward-deployed)
+- Max experience requirement (`gate.max_yoe`, default 2)
 - Language requirements
-- Target countries / remote policies
+- Target countries / remote policies (geography tiers in `search.markets`)
 
 ### 4. Dedupe
 Canonical ATS URLs are resolved and checked against the SQLite ledger. Already-applied or already-seen jobs are skipped.
 
-### 5. Score
-Each gated job is scored against your `CANDIDATE.md` profile by an LLM. The rubric evaluates role fit, tech fit, seniority fit, location/relocation fit, and application feasibility. Configurable threshold (default `≥ 6.5 / 10`).
+### 5. Score, sponsorship & verification
+Each gated job is scored 0–100 against `CANDIDATE.md` + the matching resume (tech 30%, experience 25%, seniority/education 20%, career alignment 15%, language/location 10%) → Strong 80+ / Good 65–79 / Stretch 50–64 / Not recommended. The scorer also returns matching skills, missing mandatory/preferred qualifications, the resume to use (AI or SWE), the project to emphasize, positioning advice, risks, and any hard blocker.
+
+Visa sponsorship is classified **separately** (`src/sponsorship.py`): **A** explicit in the posting (quoted), **B** company-level evidence (gov.uk sponsor register, SponsorMap, Applywave, UKHired/Relocate.me/Landed listing), **C** unknown, **D** restricted (no sponsorship, existing work rights, citizenship, clearance). An LLM-claimed A/D is accepted only if its quote is verbatim in the posting. Australian roles also get offshore eligibility, the subclass 482 pathway and salary-vs-CSIT eligibility. Hard blockers and D-category onsite roles are excluded before ranking.
+
+Survivors are verified (`src/verify.py`): ATS-API jobs count as open, other apply pages are fetched and closed listings dropped; login-walled boards are labelled "unverified". Review threshold: `score.threshold` (65).
 
 ### 6. Review (human in the loop)
 In `review_first` mode, the pipeline **stops** after scoring and writes a review file to `manual_queue/`. You approve specific jobs before anything is submitted.
@@ -79,8 +84,10 @@ Playwright fills and submits forms on supported ATS platforms:
 
 If the filler hits a field it cannot complete, it raises `NeedsUserInput` and routes the job to the manual-required list. Unknown dropdown fallback can be controlled with `apply.allow_select_fallback`.
 
-### 8. Sync & Report
-Applied and queued jobs are written to Google Sheets. A session report is appended to `history/`.
+### 8. Sync, tracker & report
+Applied and queued jobs are written to Google Sheets. Every eligible job goes into the tracker (`src/tracker.py`, SQLite), which reports new / still open / closed / changed / newly-sponsored jobs between runs — `jobpilot --tracker md|csv|json` prints it, `--set-status <job_id>=Interview` updates it. The full report (Sections A–G: resume assessment, best matches, sponsorship opportunities, newly published by 24h/72h/7d, by career path, top 10 with reasons, coverage & limitations incl. Apify spend) prints to the terminal and is saved to `history/`.
+
+Apify spend is capped per session (`apify_budget_usd`, $5): each actor's request is sized from its per-result price and budget share, every run carries `maxTotalChargeUsd`, and going past the cap needs an interactive approval or `--apify-budget`.
 
 ---
 

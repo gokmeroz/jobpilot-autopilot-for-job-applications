@@ -30,8 +30,12 @@ _TECH_TITLE_RE = re.compile(
     r"(?:ai|ml|llm|machine[\s\-]?learning|deep[\s\-]?learning|"
     r"generative[\s\-]ai|applied[\s\-]ai|data)\s+engineer|"
     r"ai\s+[\w\-]+\s+engineer|"      # AI [qualifier] Engineer: AI Integration, AI Application…
-    # product / solutions
+    # product / solutions / adjacent families (forward deployed, research, tooling)
     r"product\s+engineer|solutions?\s+engineer|"
+    r"forward[\s\-]deployed(?:\s+software)?\s+engineer|"
+    r"research\s+engineer|rag\s+engineer|api\s+engineer|integrations?\s+engineer|"
+    r"agent(?:ic)?\s+engineer|automation\s+engineer|"
+    r"developer\s+(?:tools|tooling|experience|productivity)\s+engineer|"
     # developer-adjacent
     r"developer\s+advocate|technical\s+consultant|"
     # bare "developer" / "programmer" — almost always SWE in practice

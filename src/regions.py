@@ -19,6 +19,15 @@ REGIONS: dict[str, list[str] | None] = {
     "uk":     ["GB"],
     "eu-uk":  EU + ["GB"],
     "remote": ["REMOTE"],
+    "us":          ["US"],
+    "ireland":     ["IE"],
+    "switzerland": ["CH"],
+    "canada":      ["CA"],
+    "australia":   ["AU"],
+    # Search-geography tiers from the search profile (config.yaml search.markets)
+    "tier1": ["US", "GB", "IE"],
+    "tier2": ["DE", "NL", "CH", "CA"],
+    "tier3": ["AT", "BE", "IT", "LU", "TR", "AU", "REMOTE"],
     "all":    None,
 }
 

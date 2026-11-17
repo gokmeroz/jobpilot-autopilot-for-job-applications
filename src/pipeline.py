@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import textwrap
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +49,18 @@ class PipelineResult:
     report_file: Path | None = None
     jobs_for_review: list[Job] = field(default_factory=list)
     manual_required_jobs: list[Job] = field(default_factory=list)
+    # search-report fields
+    unique: int = 0
+    passed_gate: int = 0
+    verified_open: int = 0
+    unverified: int = 0
+    closed: int = 0
+    window_hours: float = 0.0
+    eligible: list[Job] = field(default_factory=list)       # ≥ stretch_min, no blocker, not closed
+    exclusions: Counter = field(default_factory=Counter)
+    coverage: list[dict] = field(default_factory=list)
+    tracker_changes: dict = field(default_factory=dict)
+    report_text: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -125,90 +138,21 @@ def _write_review_file(jobs: list[Job], run_id: str, cfg: dict) -> Path:
 # Session report
 # ---------------------------------------------------------------------------
 
-def _write_report(result: PipelineResult, cfg: dict) -> Path:
+def _write_report(result: PipelineResult, cfg: dict, *, started: datetime | None = None,
+                  offline: bool = False) -> Path:
+    from src import report
     hist_dir = ROOT / cfg["paths"]["history"]
     hist_dir.mkdir(parents=True, exist_ok=True)
     path = hist_dir / f"{result.run_id}_report.md"
-
-    country_counts: dict[str, int] = {}
-    for job in result.jobs_for_review:
-        country_counts[job.country] = country_counts.get(job.country, 0) + 1
-
-    top = sorted(result.jobs_for_review, key=lambda j: j.score.total if j.score else 0, reverse=True)[:5]
-
-    lines = [
-        f"# Job Search Session Report — {result.run_id}",
-        "",
-        "## Summary",
-        "",
-        f"| Metric | Count |",
-        f"|--------|-------|",
-        f"| Jobs Discovered | {result.total_discovered} |",
-        f"| Gated Out | {result.gated_out} |",
-        f"| Duplicates Skipped | {result.duplicates_skipped} |",
-        f"| Scored | {result.scored} |",
-        f"| Above Threshold | {result.above_threshold} |",
-        f"| Applied | {result.applied} |",
-        f"| Needs User Input | {result.needs_user_input} |",
-        f"| Appended to Sheet | {result.appended_to_sheet} |",
-        "",
-        "## Review List",
-        "",
-        f"See: `{result.review_file.name if result.review_file else '—'}`",
-        "",
-        "| # | Role | Company | Country | Type | Salary | Score | Apply Link |",
-        "|---|------|---------|---------|------|--------|-------|------------|",
-    ]
-
-    for i, job in enumerate(result.jobs_for_review, 1):
-        score = f"{job.score.total:.1f}" if job.score else "—"
-        lines.append(
-            f"| {i} | {_md_cell(job.title)} | {_md_cell(job.company)} | {job.country} "
-            f"| {job.remote.value.title()} | {_md_cell(job.salary or '—')} | {score} "
-            f"| {_md_cell(job.apply_url)} |"
-        )
-
-    lines += [
-        "",
-        "## Country Breakdown",
-        "",
-    ]
-    for country, count in sorted(country_counts.items(), key=lambda x: -x[1]):
-        lines.append(f"- {country}: {count}")
-
-    lines += [
-        "",
-        "## Top Opportunities",
-        "",
-    ]
-    for job in top:
-        score = f"{job.score.total:.1f}" if job.score else "—"
-        rationale = job.score.rationale if job.score else ""
-        lines.append(f"- **{job.title}** @ {job.company} ({job.country}) — Score {score}")
-        if rationale:
-            lines.append(f"  _{rationale}_")
-
-    lines += [
-        "",
-        "## Manual Required",
-        "",
-    ]
-    if result.manual_required_jobs:
-        lines += [
-            "| Role | Company | Country | ATS | Reason | Apply Link |",
-            "|------|---------|---------|-----|--------|------------|",
-        ]
-        for job in result.manual_required_jobs:
-            lines.append(
-                f"| {_md_cell(job.title)} | {_md_cell(job.company)} | {job.country} | {job.ats or '—'} "
-                f"| {_md_cell(_manual_reason(job))} | {_md_cell(job.apply_url)} |"
-            )
-    else:
-        lines.append("None.")
-
-    path.write_text("\n".join(lines) + "\n")
+    text = report.build(result, started or datetime.now(timezone.utc), report.resume_assessment(offline=offline))
+    path.write_text(text)
+    result.report_text = text
     log.info("report written → %s", path.relative_to(ROOT))
     return path
+
+
+def _reason_bucket(reason: str) -> str:
+    return reason.split(":")[0].split("(")[0].split("'")[0].strip()[:60]
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +181,10 @@ def _prefer_ats_within_batch(jobs: list[Job]) -> list[Job]:
     return list(best.values())
 
 
+# Sources that list a company's whole board — a tracked job missing from them is closed.
+_FULL_CRAWL_SOURCES = {"greenhouse", "ashby", "lever"}
+
+
 def _make_run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
@@ -247,6 +195,7 @@ def run(
     run_id: str | None = None,
     countries: list[str] | None = None,
     manual_only: bool = False,
+    coverage: list[dict] | None = None,
 ) -> PipelineResult:
     """
     Run the full pipeline on a list of discovered Job objects.
@@ -259,45 +208,84 @@ def run(
     mode = cfg.get("mode", "review_first")
     threshold = cfg["score"]["threshold"]
 
-    result = PipelineResult(run_id=run_id, total_discovered=len(jobs))
+    from src import sponsors, tracker, verify
+    started = datetime.now(timezone.utc)
+    stretch_min = cfg["score"].get("stretch_min", 50)
+
+    result = PipelineResult(run_id=run_id, total_discovered=len(jobs), coverage=list(coverage or []),
+                            window_hours=float(cfg["gate"]["max_age_hours"]))
     log.info("pipeline run %s — %d jobs discovered", run_id, len(jobs))
+    seen_keys = {j.job_key for j in jobs}
+    # (source, company) boards fully listed this run — a tracked job missing from one is closed
+    crawled = {(j.source, j.company) for j in jobs if j.source in _FULL_CRAWL_SOURCES}
+    result.unique = len(seen_keys)
 
     # 1. Initialise ledger
     ledger.init()
+    tracker.init()
 
     # 2. Gate
     passed, gated = gate.run(jobs, countries=countries)
     result.gated_out = len(gated)
+    result.exclusions.update(_reason_bucket(j.gate_reason or "gated") for j in gated)
 
     # 2b. Within-batch dedup: for same job_key prefer ATS URL over LinkedIn URL
     passed = _prefer_ats_within_batch(passed)
+    result.passed_gate = len(passed)
 
     # 3. Dedupe against ledger
     new_jobs, dupes = ledger.filter_new(passed)
     result.duplicates_skipped = len(dupes)
+    if dupes:
+        result.exclusions["already seen in an earlier run"] += len(dupes)
 
     if not new_jobs:
         log.info("no new jobs after gate + dedupe — nothing to score")
+        result.tracker_changes = tracker.reconcile([], seen_keys, crawled)
         result.review_file = _write_review_file([], run_id, cfg)
-        result.report_file = _write_report(result, cfg)
+        result.report_file = _write_report(result, cfg, started=started)
+        _print_summary(result)
         return result
 
-    # 4. Score
+    # 4. Score (fit 0–100 + sponsorship A/B/C/D, separately). Newest first so the
+    #    LLM call cap never drops the freshest postings.
+    sponsors.lists()
+    new_jobs.sort(key=lambda j: j.age_hours() if (j.timestamp_trusted and j.posted_at) else 1e9)
     scored_jobs = score_batch(new_jobs)
     result.scored = sum(1 for j in scored_jobs if j.status == Status.scored)
 
-    # 5. Filter above threshold
-    above = [j for j in scored_jobs if j.score and j.score.total >= threshold]
-    result.above_threshold = len(above)
+    # 5. Hard eligibility filters before ranking, then verify the survivors are still open.
+    candidates = []
+    for j in scored_jobs:
+        if not j.score:
+            continue
+        if j.fit and j.fit.hard_blocker:
+            result.exclusions[f"hard blocker: {_reason_bucket(j.fit.hard_blocker)}"] += 1
+        elif j.score.total < stretch_min:
+            result.exclusions[f"fit below {stretch_min}"] += 1
+        else:
+            candidates.append(j)
+    candidates = verify.verify_batch(candidates)
+    result.closed = sum(1 for j in candidates if verify.is_closed(j))
+    if result.closed:
+        result.exclusions["listing closed"] += result.closed
+    result.eligible = [j for j in candidates if not verify.is_closed(j)]
+    result.verified_open = sum(1 for j in result.eligible if (j.verification or "").startswith("open"))
+    result.unverified = len(result.eligible) - result.verified_open
 
-    # 5b. Resolve external apply URLs for above-threshold LinkedIn jobs
+    # 5b. Review threshold, then resolve external apply URLs for LinkedIn jobs
+    above = [j for j in result.eligible if j.score.total >= threshold]
+    result.above_threshold = len(above)
     above = resolve_apply_urls(above)
 
     # 6. Plan (assign cover letter + route)
     planned = [_assign_plan(j, cfg) for j in above]
 
-    # 7. Record everything in ledger (including gated-out and dupes)
+    # 7. Record everything in ledger + tracker
     ledger.record_batch(scored_jobs, run_id)
+    by_key = {j.job_key: j for j in planned}
+    tracked = [by_key.get(j.job_key, j) for j in result.eligible]
+    result.tracker_changes = tracker.reconcile(tracked, seen_keys, crawled)
 
     # 8. Review file — always generated
     sorted_planned = sorted(planned, key=lambda j: j.score.total if j.score else 0, reverse=True)
@@ -311,7 +299,7 @@ def run(
             "manual_only" if manual_only else mode,
             result.review_file.name,
         )
-        result.report_file = _write_report(result, cfg)
+        result.report_file = _write_report(result, cfg, started=started)
         _print_summary(result)
         return result
 
@@ -353,20 +341,25 @@ def run(
     except Exception as exc:
         log.error("sheet sync failed: %s", exc)
 
+    tracker.mark_applied([j.job_key for j in applied_jobs])
+
     # 12. Report
-    result.report_file = _write_report(result, cfg)
+    result.report_file = _write_report(result, cfg, started=started)
     _print_summary(result)
     return result
 
 
 def _print_summary(result: PipelineResult) -> None:
+    if result.report_text:
+        print("\n" + result.report_text)
     print(textwrap.dedent(f"""
     ── JobPilot Run {result.run_id} ──────────────────────────
       Discovered : {result.total_discovered}
       Gated out  : {result.gated_out}
       Duplicates : {result.duplicates_skipped}
       Scored     : {result.scored}
-      Above {load("config")["score"]["threshold"]}    : {result.above_threshold}
+      Eligible   : {len(result.eligible)}
+      Above {load("config")["score"]["threshold"]}   : {result.above_threshold}
       Applied    : {result.applied}
       Needs input: {result.needs_user_input}
       Sheet rows : {result.appended_to_sheet}
